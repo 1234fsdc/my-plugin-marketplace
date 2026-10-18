@@ -31,6 +31,16 @@ my-plugin-marketplace/
 - 插件内容放 `skills/` 或 `agents/`
 - `package.json` 必须有 `name` 和 `version`
 
+## 当前插件
+
+| 插件 | 说明 |
+|---|---|
+| `auto-chinese-desc` | 新安装的 Skill 自动补中文描述 |
+| `page-testing` | 前端项目逐页扫描审计 |
+| `token-details-panel` | 侧边栏 Token 统计面板 |
+| `mattpocock-skills` | Matt Pocock 工程技能（精简版，去掉了 to-spec） |
+| `document-skills` | Excel / Word / PowerPoint / PDF 文档处理套件 |
+
 ## 导入 ZCode
 
 在 ZCode 插件市场界面添加市场，source 选 `github`，填 `1234fsdc/my-plugin-marketplace` 即可。

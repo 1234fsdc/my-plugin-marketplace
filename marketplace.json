@@ -26,6 +26,39 @@
       "description": "在 ZCode 会话侧边栏显示 Token 统计：今日汇总、每模型速度、活跃会话、按模型/会话用量、压缩与近 7 日趋势。装好后点右上角「切换面板」打开「Token 统计」面板。数据只读本机 ~/.zcode/cli/db/db.sqlite，零依赖、离线、只读。",
       "author": { "name": "木" },
       "license": "MIT"
+    },
+    {
+      "name": "mattpocock-skills",
+      "source": "./mattpocock-skills",
+      "version": "1.2.3",
+      "description": "Matt Pocock's agent skills for real engineering — grilling, spec/ticket flows, TDD, code review, domain modelling and more. Plug-and-play, not vibe coding.",
+      "author": { "name": "Matt Pocock", "url": "https://www.aihero.dev" },
+      "homepage": "https://www.aihero.dev/s/skills-newsletter",
+      "repository": "https://github.com/mattpocock/skills",
+      "license": "MIT",
+      "skills": [
+        "./skills/engineering/diagnosing-bugs",
+        "./skills/engineering/tdd",
+        "./skills/engineering/implement",
+        "./skills/engineering/codebase-design",
+        "./skills/engineering/prototype",
+        "./skills/productivity/grilling",
+        "./skills/engineering/retro"
+      ]
+    },
+    {
+      "name": "document-skills",
+      "source": "./document-skills",
+      "version": "0.0.0",
+      "description": "Collection of document processing suite including Excel, Word, PowerPoint, and PDF capabilities.",
+      "author": { "name": "Anthropic" },
+      "license": "MIT",
+      "skills": [
+        "./skills/xlsx",
+        "./skills/docx",
+        "./skills/pptx",
+        "./skills/pdf"
+      ]
     }
   ]
 }
