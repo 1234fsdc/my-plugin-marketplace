@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Token 统计</title>
+<style>
+  /* ZCode 宿主语言：CSS 变量 + 亮暗双主题（fallback 与宿主一致）。磁贴网格，平实填充，无渐变无阴影。 */
+  :root{color-scheme:light;--bg:var(--color-background-primary,#fff);--bg2:var(--color-background-secondary,#f4f5f7);--fg:var(--color-text-primary,#1d2129);
+    --muted:var(--color-text-secondary,#6b7280);--faint:#9aa1ab;--border:var(--color-border-primary,#e2e5ea);--soft:var(--color-border-secondary,#eef0f3);
+    --accent:var(--color-text-info,#2f7fe0);--accent-bg:var(--color-background-info,#eaf3fe);
+    --up:#15803d;--up-bg:#e3f5e8;--down:#c2410c;--down-bg:#fdede3;--warn:#a16207;--warn-bg:#fdf3d8;--err:#dc2626;
+    --sans:var(--font-sans,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif)}
+  :root[data-theme=dark]{color-scheme:dark;--bg:var(--color-background-primary,#17181c);--bg2:var(--color-background-secondary,#212329);--fg:var(--color-text-primary,#e6e8ec);
+    --muted:var(--color-text-secondary,#9aa1ab);--faint:#6b7280;--border:var(--color-border-primary,#30333a);--soft:var(--color-border-secondary,#272a30);
+    --accent:var(--color-text-info,#7cb6ff);--accent-bg:var(--color-background-info,#14283f);
+    --up:#4ade80;--up-bg:#173022;--down:#fb923c;--down-bg:#3a2417;--warn:#fbbf24;--warn-bg:#352a10;--err:#f87171}
+  *{box-sizing:border-box;min-width:0}
+  html,body{margin:0;background:var(--bg);color:var(--fg)}
+  body{font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+  main{padding:10px 12px 16px;display:flex;flex-direction:column;gap:8px;max-width:720px;margin:0 auto}
+  .muted{color:var(--muted)}.small{font-size:11px}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .eyebrow{display:flex;gap:8px;align-items:center;justify-content:space-between}
+  .toolbar-title{font-size:13px;font-weight:650;flex:none}
+  .head-meta{display:flex;gap:8px;align-items:center;font-size:11px;color:var(--muted);min-width:0}
+  .head-meta .num{overflow:hidden;text-overflow:ellipsis}
+  .live{display:inline-flex;align-items:center;gap:5px;color:var(--up);font-weight:600;flex:none}
+  .live-dot{width:6px;height:6px;border-radius:50%;background:var(--up)}
+  /* 双标签：宿主胶囊分段控件 */
+  .tabs{display:flex;gap:2px;background:var(--bg2);border-radius:8px;padding:2px}
+  .tabs button{flex:1;border:0;background:transparent;color:var(--muted);font:600 12px/1 var(--sans);
+    padding:7px 0;border-radius:6px;cursor:pointer;white-space:nowrap}
+  .tabs button.on{background:var(--accent);color:#fff}
+  /* 磁贴网格：本会话 + 全局总览共用 */
+  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .t3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .tile{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:1px}
+  .tile .l{font-size:11px;font-weight:600;color:var(--muted)}
+  .tile .v{font-size:20px;font-weight:750;letter-spacing:-.01em;line-height:1.3;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .tile .v small{font-size:11px;font-weight:550;color:var(--muted)}
+  .tile .s{font-size:10.5px;color:var(--faint)}
+  .w2{grid-column:span 2}
+  .w3{grid-column:span 3}
+  /* 上下文主磁贴：宿主 info 色平实填充，占用超阈值时切换暖色底 */
+  .ctx-t{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
+  .ctx-t .l,.ctx-t .s{color:var(--accent)}
+  .ctx-t .v{font-size:26px;font-weight:800;color:var(--accent)}
+  .ctx-t .v small{color:var(--accent);opacity:.75}
+  .ctx-t.warn{background:var(--warn-bg);color:var(--warn)}.ctx-t.warn .l,.ctx-t.warn .s,.ctx-t.warn .v,.ctx-t.warn .v small{color:var(--warn)}
+  .ctx-t.over{background:var(--down-bg);color:var(--down)}.ctx-t.over .l,.ctx-t.over .s,.ctx-t.over .v,.ctx-t.over .v small{color:var(--down)}
+  .track{height:6px;border-radius:3px;background:light-dark(#ffffffb0,#ffffff26);overflow:hidden;margin:6px 0 3px}
+  .track i{display:block;height:100%;border-radius:3px;background:currentColor}
+  /* 速度徽章：80/50 t/s 分档 */
+  .badge{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
+  .badge.up{background:var(--up-bg);color:var(--up)}.badge.down{background:var(--down-bg);color:var(--down)}
+  .badge.flat{background:var(--bg2);color:var(--muted);font-weight:500}.badge.warn{background:var(--warn-bg);color:var(--warn)}
+  /* 列表行：行间细分隔线（宿主列表式样） */
+  .lrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-size:12.5px}
+  .lrow+.lrow{border-top:1px solid var(--soft)}
+  .lrow .n{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow .x{display:flex;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap}
+  .lrow .x .num{font-size:12px}
+  .lbar{height:4px;border-radius:2px;background:var(--soft);overflow:hidden;margin:1px 0 4px}
+  .lbar i{display:block;height:100%;background:var(--accent);border-radius:2px}
+  .lbar i.up{background:var(--up)}.lbar i.warn{background:var(--warn)}.lbar i.down{background:var(--down)}
+  .more{display:block;width:100%;margin-top:4px;padding:5px 0;border:0;border-top:1px solid var(--soft);
+    background:transparent;color:var(--accent);font:600 11.5px var(--sans);cursor:pointer;text-align:center}
+  .more:hover{background:var(--bg2)}
+  .note{margin:0;padding:6px 9px;border-radius:7px;background:var(--bg2);color:var(--muted);font-size:11.5px}
+  .notice{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 10px;border-radius:9px;font-size:12px;background:var(--down-bg);color:var(--down)}
+  .retry-btn{flex:none;border:1px solid var(--down);background:transparent;color:var(--down);
+    font:600 11px/1 var(--sans);padding:4px 10px;border-radius:6px;cursor:pointer}
+  .retry-btn:hover{background:var(--down);color:var(--bg)}
+  /* 近 7 日：横向条形（对照 zcode-context day-bar 图式） */
+  .day{display:grid;grid-template-columns:52px 1fr auto;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+  .day-bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
+  .day-bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  .day .num{color:var(--muted);font-size:11px}
+</style>
+</head>
+<body>
+<main>
+  <div class="eyebrow">
+    <span class="toolbar-title">Token 统计</span>
+    <span class="head-meta"><span class="live"><span class="live-dot"></span>实时</span><span class="num" id="stamp"></span></span>
+  </div>
+  <div class="tabs" role="tablist" style="margin:0">
+    <button id="tab-sess" role="tab" aria-selected="true">本会话</button>
+    <button id="tab-all" role="tab" aria-selected="false">全局总览</button>
+  </div>
+  <div id="body"><div class="note">连接中…</div></div>
+</main><script>
+"use strict";
+// ---- 极简 ext-apps 桥：window.parent JSON-RPC（对照 @mcp-app/ext-apps bb 传输 + Yp.connect） ----
+const PROTOCOL = "2026-01-26";
+let seq = 0;
+const pending = new Map();
+
+window.addEventListener("message", (ev) => {
+  const m = ev.data;
+  if (!m || m.jsonrpc !== "2.0") return;
+  if (m.id === undefined) {  // 宿主通知
+    if (m.method === "ui/notifications/teardown") { Dead = true; document.getElementById("body").innerHTML = "<div class='note'>面板已关闭</div>"; }
+    else if (m.method === "ui/notifications/host-context-changed" && m.params) applyHostContext(m.params);
+    return;
+  }
+  const job = pending.get(m.id);
+  if (!job) return;
+  pending.delete(m.id);
+  if (m.error) job.rej(new Error(m.error.message || "request failed"));
+  else job.res(m.result);
+});
+function request(method, params) {
+  return new Promise((res, rej) => {
+    const id = ++seq;
+    pending.set(id, { res, rej });
+    window.parent.postMessage({ jsonrpc: "2.0", id, method, params }, "*");
+    setTimeout(() => { if (pending.delete(id)) rej(new Error(method + " timeout")); }, 15000);
+  });
+}
+function notify(method, params) { window.parent.postMessage({ jsonrpc: "2.0", method, params }, "*"); }
+
+async function callTool(name, args) {
+  const r = await request("tools/call", { name, arguments: args || {} });
+  if (r.isError) throw errOf(r.structuredContent?.error?.code || "tool error");
+  return r.structuredContent;
+}
+// 错误分码（对照 zcode-context tU/Ni）：host 类失败点重试也没用，引导用户关面板重开/重启 ZCode
+function errOf(codeOrMsg) {
+  const s = String(codeOrMsg || "");
+  const host = /timeout|unavailable|no longer available|connect/i.test(s);
+  const e = new Error(s);
+  e.host = host;
+  return e;
+}
+let Dead = false;   // 宿主连接已判死：停轮询，等面板重开（新 iframe = 新连接）
+function showErr(e) {
+  if (Dead) return;
+  const host = e?.host;
+  if (host) Dead = true;
+  document.getElementById("body").innerHTML = host
+    ? `<div class="notice">无法连接到 ZCode：宿主连接已失效且不会自动重连。请关闭面板后重新打开；仍不行则重启 ZCode。</div>`
+    : `<div class="notice">数据不可用：${esc(e.message)} <button class="retry-btn" id="retry">重试</button></div>`;
+  document.getElementById("retry")?.addEventListener("click", () => { Dead = false; refresh(); });
+}
+function applyHostContext(hc) {
+  if (hc.theme) document.documentElement.dataset.theme = hc.theme;
+  if (hc.locale) document.documentElement.lang = hc.locale;
+  for (const [k, v] of Object.entries(hc.styles?.variables ?? {}))
+    if (k.startsWith("--") && typeof v === "string") document.documentElement.style.setProperty(k, v);
+}
+
+// ---- 渲染（口径对照 TokenDetailsNative.cs RefreshDetail；徽章色 80/50 t/s 分档） ----
+const Kcn = (n) => {
+  n = Math.round(n);
+  if (n >= 1e8) return (n / 1e8).toFixed(2) + "亿";
+  if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
+  return n.toLocaleString("en-US");
+};
+const SpdC = (v) => (v >= 80 ? "up" : v >= 50 ? "warn" : "down");
+const FmtMs = (ms) => {
+  if (!ms) return "-";
+  const d = new Date(ms);
+  const p = (x) => String(x).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+const FmtDur = (ms) => {
+  if (!ms || ms < 0) return "-";
+  const m = Math.round(ms / 60000);
+  if (m < 60) return m + " 分钟";
+  return Math.floor(m / 60) + " 小时 " + (m % 60) + " 分";
+};
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// 磁贴辅助：label / value / sub 三段；w2=跨两列
+const tile = (l, v, s, cls = "") => `<div class="tile ${cls}"><span class="l">${l}</span><span class="v">${v}</span><span class="s">${s}</span></div>`;
+
+// 列表磁贴：默认只显示前 CAP 条，点「显示全部」展开（Expand 集合跨 3s 重绘保持展开态）
+const CAP = 5;
+const Expand = new Set();
+function listTile(key, label, items, rowFn, empty = "暂无数据") {
+  if (!items.length) return `<div class="tile w2"><span class="l">${label}</span><div class="note">${empty}</div></div>`;
+  const open = Expand.has(key);
+  const shown = open ? items : items.slice(0, CAP);
+  let html = `<div class="tile w2"><span class="l" style="margin-bottom:2px">${label}</span>`;
+  html += shown.map(rowFn).join("");
+  if (items.length > CAP) {
+    html += open
+      ? `<button class="more" type="button" data-key="${key}">收起</button>`
+      : `<button class="more" type="button" data-key="${key}">显示全部 ${items.length} 条</button>`;
+  }
+  return html + `</div>`;
+}
+document.addEventListener("click", (ev) => {
+  const b = ev.target.closest?.(".more");
+  if (!b) return;
+  const k = b.dataset.key;
+  if (Expand.has(k)) Expand.delete(k); else Expand.add(k);
+  if (LastD) render(LastD);   // 立即重绘，不等下一轮轮询
+});
+
+function render(D) {
+  document.getElementById("stamp").textContent = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  document.getElementById("body").innerHTML = Tab === "sess" ? renderSess(D) : renderAll(D);
+}
+
+// ---- 本会话视图：磁贴网格 ----
+function renderSess(D) {
+  const s = D.sess;
+  if (!s) return `<div class="note">会话绑定不可用：宿主未提供会话 ID（可能面板在会话外打开）。可切到「全局总览」查看统计。</div>`;
+  const K = (v) => v == null ? "-" : (v * 100).toFixed(0) + "%";
+  // 上下文占用：真实口径（已用 = 最近请求 input_tokens；上限 = 宿主 modelConfigRules contextWindow）
+  const pct = s.total > 0 ? Math.min(100, Math.round(s.ctx * 100 / s.total)) : null;
+  const cls = pct == null ? "" : pct >= 90 ? "over" : pct >= 70 ? "warn" : "";
+  const state = pct == null ? "" : pct >= 90 ? "接近上限" : pct >= 70 ? "偏高" : "健康";
+  const remain = s.total > 0 ? ` · 剩余约 ${Kcn(Math.max(0, s.total - s.ctx))}` : "";
+  const sub = pct != null ? `已用 ${pct}%${state ? " · " + state : ""}${remain}`
+                          : `上限未知（模型 ${esc(s.model)} 不在宿主配置内）`;
+  let html = `<div class="tiles">`;
+  html += `<div class="tile ctx-t w2 ${cls}"><span class="l">上下文占用</span>
+    <span class="v">${Kcn(s.ctx)}<small>${s.total > 0 ? " / " + Kcn(s.total) + " tokens" : " tokens"}</small></span>
+    <div class="track">${pct != null ? `<i style="width:${pct}%"></i>` : ""}</div>
+    <span class="s">${sub}</span></div>`;
+  html += tile("速度", `<span style="color:var(--accent)">${s.tps.toFixed(1)}<small> t/s</small></span>`, `全轮平均 · 时长 ${FmtDur(s.durMs)}`);
+  html += tile("缓存命中", `<span style="color:var(--up)">${K(s.cacheHit)}</span>`, `${s.n} 次请求`);
+  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮`);
+  html += tile("工具调用", `${s.tools}`, `取消${s.cancels} · 重试${s.retries} · 压缩${s.compacts}`);
+  if (s.sub.n > 0 && s.sub.list.length) {
+    html += listTile("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x) =>
+      `<div class="lrow"><span class="n">${esc(x.title)}</span>`
+      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span></span></div>`);
+  }
+  // 按模型（占大头，进度条归一；显示该模型最后一次请求的速度 = 切换前速度）
+  const mx = Math.max(1, ...s.byModel.map((m) => m.tok));
+  html += listTile("bymodel", "按模型", s.byModel, (m) =>
+    `<div class="lrow"><span class="n">${esc(m.model)}</span>`
+    + `<span class="x"><span class="num">${m.cnt} 次</span><span class="num">${Kcn(m.tok)} tok</span>`
+    + `<span class="num">${m.lastTps != null ? m.lastTps + " t/s" : "-"}</span></span></div>`
+    + `<div class="lbar"><i style="width:${Math.round(m.tok * 100 / mx)}%"></i></div>`);
+  html += `</div>`;
+  return html;
+}
+
+// ---- 全局总览视图：同一套磁贴语言 ----
+function renderAll(D) {
+  const s = D.sum;
+  // 旧版 server 可能没有这些字段（宿主进程未重启时）：兜底不崩
+  const tools = D.tools ?? { turns: 0, tools: 0, terr: 0 };
+  const sessN = D.sessN ?? 0;
+  const compactN = D.compactN ?? 0;
+  const total = s.total ?? (s.inp + s.out);   // 旧 server 兜底
+  const span = s.mx > s.mn ? FmtMs(s.mn) + " → " + FmtMs(s.mx) : "-";
+  let html = `<div class="tiles">`;
+  // 主磁贴：今日 token 总量（结构对齐本会话的上下文占用主磁贴）
+  html += `<div class="tile ctx-t w2"><span class="l">今日 Token 用量</span>
+    <span class="v">${Kcn(total)}<small> tokens</small></span>
+    <span class="s">${s.n} 次请求 · ${span}</span></div>`;
+  html += tile("今日请求", `${s.n}<small> 次</small>`, `${D.sessions.length} 个活跃会话`);
+  html += tile("输入 / 输出",
+    `<span style="color:var(--accent)">${Kcn(s.inp)}<small> / ${Kcn(s.out)}</small></span>`,
+    `${D.byModel.length} 个模型 · 输出含思考`);
+  html += tile("今日工具调用", `${tools.tools}`, `${tools.turns} 轮 · 错误 ${tools.terr}`);
+  html += tile("对话过会话", `${sessN}<small> 个</small>`, `压缩 ${compactN} 次`);
+  html += listTile("sessions", "活跃会话 · 30 分钟窗口", D.sessions, (x) => {
+    const c = SpdC(x.tps), ttft = x.ttft != null ? x.ttft.toFixed(1) + "s" : "-";
+    return `<div class="lrow" style="flex-direction:column;align-items:stretch;gap:1px;padding:6px 0">`
+      + `<div style="display:flex;align-items:center;gap:8px"><span class="n">${esc(x.title)}</span><span class="badge ${c}">${x.tps.toFixed(1)} t/s</span></div>`
+      + `<div class="x" style="overflow:hidden;text-overflow:ellipsis"><span class="num">${esc(x.model)}</span><span class="num">首字 ${ttft}</span><span class="num">${x.rpm.toFixed(1)} 次/分</span><span class="num">${x.cnt} 次</span></div>`
+      + `</div>`;
+  }, "30 分钟内无活动会话");
+  const shareRow = (total) => (x) => {
+    const p = Math.round(x.tok * 100 / total);
+    return `<div class="lrow"><span class="n">${esc(x.title ?? x.model)}</span>`
+      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span></span></div>`
+      + `<div class="lbar"><i style="width:${p}%"></i></div>`;
+  };
+  const tByModel = D.byModel.reduce((a, x) => a + x.tok, 0) || 1;
+  const tBySession = D.bySession.reduce((a, x) => a + x.tok, 0) || 1;
+  html += listTile("bySession", "按会话 · 今日", D.bySession, shareRow(tBySession), "今日暂无数据");
+  html += listTile("byModel", "按模型 · 今日", D.byModel, shareRow(tByModel), "今日暂无数据");
+  html += listTile("dmodels", "每模型速度 · 今日", D.dmodels, (m) => {
+    const c = SpdC(m.tpsV), w = Math.min(100, Math.round(m.tpsV / 120 * 100));
+    return `<div class="lrow"><span class="n">${esc(m.model)}</span>`
+      + `<span class="x"><span>${esc(m.prov)}</span><span class="num">${m.cnt} 次</span><span class="num">${m.tps} t/s</span></span></div>`
+      + `<div class="lbar"><i class="${c}" style="width:${w}%"></i></div>`;
+  }, "今日暂无数据");
+  html += listTile("compact", `会话压缩 · 30 天内 ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
+    `<div class="lrow"><span class="n">${esc(c.title)}</span>`
+    + `<span class="x"><span class="num">${c.n} 次</span><span class="num">${FmtMs(c.last)}</span></span></div>`, "30 天内无压缩会话");
+  if (D.days.some((d) => d.tok > 0)) {
+    const mx = Math.max(...D.days.map((d) => d.tok));
+    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 token</span>`
+      + D.days.map((d) =>
+        `<div class="day"><span class="num">${d.label}</span>`
+        + `<div class="day-bar"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>`
+        + `<span class="num">${Kcn(d.tok)}</span></div>`).join("") + `</div>`;
+  }
+  html += `</div>`;
+  return html;
+}
+
+let refreshing = false;
+let Tab = new URLSearchParams(location.search).get("tab") === "all" ? "all" : "sess";   // 当前标签（支持 ?tab=all 直开总览）
+let LastD = null;   // 最近一次工具结果（切标签免等待）
+function setTab(t) {
+  Tab = t;
+  for (const [id, name] of [["tab-sess", "sess"], ["tab-all", "all"]]) {
+    const b = document.getElementById(id);
+    b.classList.toggle("on", name === t);
+    b.setAttribute("aria-selected", String(name === t));
+  }
+  if (LastD) render(LastD);
+}
+document.getElementById("tab-sess").addEventListener("click", () => setTab("sess"));
+document.getElementById("tab-all").addEventListener("click", () => setTab("all"));
+setTab(Tab);   // 同步 ?tab= 直开时的胶囊/hint 初始态
+
+async function refresh() {
+  if (Dead || refreshing || document.hidden) return;
+  refreshing = true;
+  try {
+    const d = await callTool("get_tokens_overview");
+    LastD = d; render(LastD);
+  }
+  catch (e) { showErr(e); }
+  finally { refreshing = false; }
+}
+
+(async () => {
+  try {
+    const init = await request("ui/initialize", {
+      appInfo: { name: "token-details-panel", version: "1.0.0" },
+      appCapabilities: {},
+      protocolVersion: PROTOCOL,
+    });
+    applyHostContext(init?.hostContext ?? {});
+    notify("ui/notifications/initialized", {});
+    await refresh();
+    setInterval(refresh, 3000);
+  } catch (e) {
+    e.host = true;   // 初始化失败 = 连接类错误：不重试（zcode-context 同款处理）
+    showErr(e);
+  }
+})();
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@local/auto-chinese-desc",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "ZCode plugin: automatically add Chinese descriptions to SKILL.md files."
+}

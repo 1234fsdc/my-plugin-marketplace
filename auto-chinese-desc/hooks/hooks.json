@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${ZCODE_PLUGIN_ROOT}/hooks/run.cmd\"",
+            "timeout": 60,
+            "statusMessage": "正在为 Skill 添加中文概述..."
+          }
+        ]
+      }
+    ]
+  }
+}

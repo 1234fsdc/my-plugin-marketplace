@@ -1,0 +1,10 @@
+{
+  "name": "auto-chinese-desc",
+  "version": "1.0.0",
+  "description": "自动为 Skill 添加中文概述：新安装的 skill 自动补上中文描述，已有中文的跳过。",
+  "author": {
+    "name": "木"
+  },
+  "license": "MIT",
+  "hooks": "hooks"
+}

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@local/token-details-panel",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "description": "ZCode session-sidebar panel: Token Details usage stats (today summary, per-model speed, active sessions, by-model/session, compaction, 7-day trend)."
+}

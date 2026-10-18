@@ -1,0 +1,8 @@
+{
+  "name": "page-testing",
+  "version": "1.0.0",
+  "description": "前端项目逐页扫描审计：主 agent 编排 + agent-browser 子代理逐页执行，输出叛逃者/重度用户双视角与技术审计报告。",
+  "author": { "name": "user" },
+  "license": "MIT",
+  "skills": "skills"
+}

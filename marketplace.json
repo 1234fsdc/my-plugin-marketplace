@@ -2,5 +2,30 @@
   "name": "my-plugin-marketplace",
   "pluginRoot": ".",
   "allowCrossMarketplaceDependenciesOn": [],
-  "plugins": []
+  "plugins": [
+    {
+      "name": "auto-chinese-desc",
+      "source": "./auto-chinese-desc",
+      "version": "1.0.0",
+      "description": "自动为 Skill 添加中文概述：新安装的 skill 自动补上中文描述，已有中文的跳过。",
+      "author": { "name": "木" },
+      "license": "MIT"
+    },
+    {
+      "name": "page-testing",
+      "source": "./page-testing",
+      "version": "1.0.0",
+      "description": "前端项目逐页扫描审计：主 agent 编排 + agent-browser 子代理逐页执行，输出叛逃者/重度用户双视角与技术审计报告。",
+      "author": { "name": "木" },
+      "license": "MIT"
+    },
+    {
+      "name": "token-details-panel",
+      "source": "./token-details-panel",
+      "version": "1.0.0",
+      "description": "在 ZCode 会话侧边栏显示 Token 统计：今日汇总、每模型速度、活跃会话、按模型/会话用量、压缩与近 7 日趋势。装好后点右上角「切换面板」打开「Token 统计」面板。数据只读本机 ~/.zcode/cli/db/db.sqlite，零依赖、离线、只读。",
+      "author": { "name": "木" },
+      "license": "MIT"
+    }
+  ]
 }
