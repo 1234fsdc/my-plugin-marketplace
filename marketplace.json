@@ -1,0 +1,6 @@
+{
+  "name": "my-plugin-marketplace",
+  "pluginRoot": ".",
+  "allowCrossMarketplaceDependenciesOn": [],
+  "plugins": []
+}
