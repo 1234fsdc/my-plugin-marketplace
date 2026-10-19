@@ -8,7 +8,9 @@
       "source": "./auto-chinese-desc",
       "version": "1.0.0",
       "description": "自动为 Skill 添加中文概述：新安装的 skill 自动补上中文描述，已有中文的跳过。",
-      "author": { "name": "木" },
+      "author": {
+        "name": "木"
+      },
       "license": "MIT"
     },
     {
@@ -16,7 +18,9 @@
       "source": "./page-testing",
       "version": "1.0.0",
       "description": "前端项目逐页扫描审计：主 agent 编排 + agent-browser 子代理逐页执行，输出叛逃者/重度用户双视角与技术审计报告。",
-      "author": { "name": "木" },
+      "author": {
+        "name": "木"
+      },
       "license": "MIT"
     },
     {
@@ -24,7 +28,9 @@
       "source": "./token-details-panel",
       "version": "1.0.0",
       "description": "在 ZCode 会话侧边栏显示 Token 统计：今日汇总、每模型速度、活跃会话、按模型/会话用量、压缩与近 7 日趋势。装好后点右上角「切换面板」打开「Token 统计」面板。数据只读本机 ~/.zcode/cli/db/db.sqlite，零依赖、离线、只读。",
-      "author": { "name": "木" },
+      "author": {
+        "name": "木"
+      },
       "license": "MIT"
     },
     {
@@ -32,7 +38,10 @@
       "source": "./mattpocock-skills",
       "version": "1.2.3",
       "description": "Matt Pocock's agent skills for real engineering — grilling, spec/ticket flows, TDD, code review, domain modelling and more. Plug-and-play, not vibe coding.",
-      "author": { "name": "Matt Pocock", "url": "https://www.aihero.dev" },
+      "author": {
+        "name": "Matt Pocock",
+        "url": "https://www.aihero.dev"
+      },
       "homepage": "https://www.aihero.dev/s/skills-newsletter",
       "repository": "https://github.com/mattpocock/skills",
       "license": "MIT",
@@ -51,7 +60,9 @@
       "source": "./document-skills",
       "version": "0.0.0",
       "description": "Collection of document processing suite including Excel, Word, PowerPoint, and PDF capabilities.",
-      "author": { "name": "Anthropic" },
+      "author": {
+        "name": "Anthropic"
+      },
       "license": "MIT",
       "skills": [
         "./skills/xlsx",
@@ -59,6 +70,17 @@
         "./skills/pptx",
         "./skills/pdf"
       ]
+    },
+    {
+      "name": "ponytail",
+      "source": "./ponytail",
+      "version": "4.9.0",
+      "description": "Lazy senior dev mode：最简可用的方案，YAGNI，能用标准库不造轮子。ZCode 特调版（v4.9.0 基座 + v5.3.2 核心技能与 hook 脚本）：skills 显式声明、ZCODE_PLUGIN_ROOT 变量、isZcode 检测 + hookSpecificOutput JSON 输出、跳过 statusline nudge。",
+      "author": {
+        "name": "Dietrich Gebert",
+        "url": "https://github.com/DietrichGebert"
+      },
+      "license": "MIT"
     }
   ]
 }

@@ -40,6 +40,7 @@ my-plugin-marketplace/
 | `token-details-panel` | 侧边栏 Token 统计面板 |
 | `mattpocock-skills` | Matt Pocock 工程技能（精简版，去掉了 to-spec） |
 | `document-skills` | Excel / Word / PowerPoint / PDF 文档处理套件 |
+| `ponytail` | 极简编码模式（ZCode 特调版：v4.9.0 基座 + v5.3.2 核心技能） |
 
 ## 导入 ZCode
 
