@@ -1,6 +1,6 @@
 {
   "name": "token-details-panel",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "在 ZCode 会话侧边栏显示 Token 统计：今日汇总、每模型速度、活跃会话、按模型/会话用量、压缩与近 7 日趋势。装好后点右上角「切换面板」打开「Token 统计」面板。数据只读本机 ~/.zcode/cli/db/db.sqlite，零依赖、离线、只读。",
   "description_i18n": {
     "en": "Token usage stats in the ZCode session sidebar: today summary, per-model speed, active sessions, by-model/session usage, compaction and 7-day trend. Open the 'Token Stats' panel from the top-right panel switcher. Read-only, offline, zero-dependency.",
