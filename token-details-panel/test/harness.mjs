@@ -27,12 +27,22 @@ srv.stdout.on("data", (d) => {
 function call(method, params) {
   return new Promise((res) => { const id = ++mid; pending.set(id, res); srv.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n"); });
 }
-const overview = await call("tools/call", { name: "get_tokens_overview", arguments: {} });
+// 会话 ID 用环境变量注入（与真实宿主 _meta["com.zcode/request-context"] 同路径）
+const SESS_ID = process.env.TDP_SESS_ID ?? "sess_8186b56a-bb99-45e8-84b5-81a0ed57b54f";
+const overview = await call("tools/call", {
+  name: "get_tokens_overview", arguments: {},
+  _meta: { "com.zcode/request-context": { session_id: SESS_ID } },
+});
 
 const hostHtml = `<!DOCTYPE html><html><head><meta charset="utf8"><title>host</title>
 <style>body{margin:0;font-family:sans-serif;background:#e8e8ec;display:flex}#side{width:420px;height:100vh;background:#fff;border-right:1px solid #ccc;position:relative}
 #if{width:100%;height:100%;border:none}#bar{position:absolute;top:6px;right:8px;font-size:11px;color:#888}</style></head><body>
 <div id="side"><div id="bar">模拟侧边栏 420px</div><iframe id="if" src="/panel"></iframe></div>
+<!-- tab 参数验证：/host?tab=all 时 iframe 直载 all 标签 -->
+<script>
+  const q = new URLSearchParams(location.search);
+  if (q.get("tab") === "all") document.getElementById("if").src = "/panel?tab=all";
+</script>
 <div style="padding:20px"><h3>模拟宿主</h3><p>面板应显示真实数据</p><p id="st"></p></div>
 <script>
 const overview = ${JSON.stringify(overview.result)};
@@ -54,6 +64,8 @@ document.getElementById("st").textContent = "overview bytes: " + JSON.stringify(
 </script></body></html>`;
 
 createServer((req, res) => {
-  if (req.url === "/panel") { res.setHeader("content-type", "text/html; charset=utf8"); res.setHeader("cache-control","no-store"); res.end(panel); }
+  if (req.url === "/panel" || req.url.startsWith("/panel?")) {
+    res.setHeader("content-type", "text/html; charset=utf8"); res.setHeader("cache-control","no-store"); res.end(panel);
+  }
   else { res.setHeader("content-type", "text/html; charset=utf8"); res.setHeader("cache-control","no-store"); res.end(hostHtml); }
 }).listen(8931, () => console.log("panel test harness at http://127.0.0.1:8931  (Ctrl+C 退出)"));

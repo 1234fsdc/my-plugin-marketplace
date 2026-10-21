@@ -69,6 +69,40 @@ function db() {
   return DbH;
 }
 
+// 模型官方价 [输入,输出]（$/1M）。正则按序首中即用（名字差不多即认定，用户口径）；
+// OpenRouter 目录 2026-10-20；agnes 取官方列表价 ¥0.35/¥1.00（现价促销 ¥0）按汇率折 $
+const PRICE_RULES = [
+  [/gpt-6-astra/, [10, 50]],
+  [/gpt-6\.1/, [2, 10]],
+  [/gpt-5\.6-sol/, [4, 20]],
+  [/gpt-5\.6-luna/, [0.2, 1.2]],
+  [/gpt-5\.6/, [2, 12]],
+  [/qwen3\.8-27b/, [0.24, 2.2]],
+  [/qwen3\.8.*flash/, [0.15, 0.47]],
+  [/qwen3\.8/, [2, 6]],
+  [/ling-3\.1/, [0.075, 0.225]],
+  [/ling-3\.0-flash-vl/, [0.06, 0.18]],
+  [/ling-3/, [0.021, 0.063]],
+  [/deepseek.*vision/, [0.22, 0.65]],
+  [/deepseek[-_]?v?4\.1|deepseek4\.1/, [0.03, 0.08]],
+  [/deepseek/, [0.09, 0.18]],
+  [/glm-5\.3-flashx/, [0.37, 1.25]],
+  [/glm-5\.3-flash/, [0.05, 0.16]],
+  [/glm-5\.3/, [0.08, 1.4]],
+  [/glm/, [0.62, 2.42]],
+  [/mimo/, [0.14, 0.28]],
+  [/kimi-k3/, [0.24, 11.94]],
+  [/kimi/, [0.57, 2.3]],
+  [/hy4/, [0.83, 2.5]],
+  [/agnes/, [0.05, 0.14]],
+  // 无底层模型名的免费中转 / 无公开目录价的预览模型
+  [/dots|group\/|nex-agi|muse-spark|motif|atria/, [0, 0]],
+];
+const costOf = (m, i, o) => {
+  const r = PRICE_RULES.find(([re]) => re.test(String(m).toLowerCase()));
+  return r ? (num(i) * r[1][0] + num(o) * r[1][1]) / 1e6 : 0;
+};
+
 // ---- 无回报模型估算（对照 EstMap：>=3 条完成行且输出回报合计 <20 tok 判无回报，
 //      usage.id 内嵌 message.id，part 正文字符数 x 0.6 折算） ----
 function estMap(rows) {
@@ -112,13 +146,19 @@ const rowTok = (r) => num(r.output_tokens) + num(r.reasoning_tokens);
 const effTok = (r, est) => { const t = rowTok(r); return t > 0 ? t : (est[r.id] ?? 0); };
 
 // ---- 概览（对照 RefreshDetail） ----
-function overview() {
+// 作用域 = 本工作区：当前会话所属 project_id（库中 workspace_id 全为空，用 project_id 兜底）；
+// 无会话绑定时退回全库口径。
+function overview(sid) {
   const h = db();
   const d0 = day0();
   const bill = String(CACHE_BILL);
+  const proj = sid ? (h.prepare(`SELECT project_id FROM session WHERE id=?`).get(sid)?.project_id ?? null) : null;
+  const WS = proj ? " AND u.session_id IN (SELECT id FROM session WHERE project_id=?)" : "";
+  const WS0 = proj ? " AND session_id IN (SELECT id FROM session WHERE project_id=?)" : "";
+  const wp = proj ? [proj] : [];
   const s = h.prepare(
     `SELECT COUNT(CASE WHEN query_source!='compact' THEN 1 END) n,
-      COALESCE(SUM(output_tokens+reasoning_tokens+input_tokens+cache_creation_input_tokens+cache_read_input_tokens),0) tok,
+      COALESCE(SUM(input_tokens+output_tokens),0) tok,
       COALESCE(SUM(CASE WHEN query_source!='compact' AND started_at IS NOT NULL AND completed_at IS NOT NULL AND completed_at>started_at THEN output_tokens+reasoning_tokens END),0) talk_tok,
       COALESCE(SUM(CASE WHEN query_source!='compact' AND started_at IS NOT NULL AND completed_at IS NOT NULL AND completed_at>started_at THEN completed_at-started_at END),0) talk_ms,
       COALESCE(SUM(output_tokens),0) out, COALESCE(SUM(input_tokens),0) inp,
@@ -129,7 +169,7 @@ function overview() {
       AVG(CASE WHEN query_source!='compact' AND first_token_at IS NOT NULL AND started_at IS NOT NULL AND first_token_at>=started_at THEN first_token_at-started_at END) ttft,
       MIN(CASE WHEN query_source!='compact' THEN completed_at END) mn,
       MAX(CASE WHEN query_source!='compact' THEN completed_at END) mx
-     FROM model_usage WHERE status='completed' AND completed_at >= ?`).get(d0);
+     FROM model_usage WHERE status='completed' AND completed_at >= ?${WS0}`).get(d0, ...wp);
   // 今日真实 token 总量 = input + output（对照宿主 computed_total_tokens：input 已含缓存读/写，output 已含思考）
   const dayTotal = num(s.inp) + num(s.out);
   const sum = {
@@ -145,7 +185,8 @@ function overview() {
   const cutSess = Date.now() - 30 * 60 * 1000;
   const sess = h.prepare(
     `SELECT u.session_id sid, COALESCE(s.title, u.session_id) title, COUNT(*) cnt,
-      SUM(CASE WHEN u.started_at IS NOT NULL AND u.completed_at IS NOT NULL AND u.completed_at>u.started_at THEN u.output_tokens+u.reasoning_tokens END) tok,
+      SUM(CASE WHEN u.started_at IS NOT NULL AND u.completed_at IS NOT NULL AND u.completed_at>u.started_at THEN u.output_tokens+u.reasoning_tokens END) spd_tok,
+      SUM(CASE WHEN u.started_at IS NOT NULL AND u.completed_at IS NOT NULL AND u.completed_at>u.started_at THEN u.input_tokens+u.output_tokens END) tok,
       CAST(SUM(u.output_tokens+u.reasoning_tokens+u.input_tokens+u.cache_creation_input_tokens+u.cache_read_input_tokens*${bill}) AS INT) usage,
       SUM(CASE WHEN u.started_at IS NOT NULL AND u.completed_at IS NOT NULL AND u.completed_at>u.started_at THEN u.completed_at-u.started_at END) ms,
       MAX(COALESCE(u.completed_at,u.started_at)) last,
@@ -153,25 +194,25 @@ function overview() {
       MIN(COALESCE(u.completed_at,u.started_at)) first,
       (SELECT u2.model_id FROM model_usage u2 WHERE u2.session_id=u.session_id AND u2.query_source!='compact' AND u2.status='completed' ORDER BY COALESCE(u2.completed_at,u2.started_at) DESC LIMIT 1) model
      FROM model_usage u LEFT JOIN session s ON s.id=u.session_id
-     WHERE u.query_source!='compact' AND u.task_type!='subagent_child'
-     GROUP BY u.session_id HAVING last >= ${cutSess} ORDER BY ms DESC LIMIT 30`).all();
+     WHERE u.query_source!='compact' AND u.task_type!='subagent_child'${WS}
+     GROUP BY u.session_id HAVING last >= ${cutSess} ORDER BY ms DESC LIMIT 30`).all(...wp);
   const sessions = sess.map((r) => ({
     title: r.title ?? r.sid, cnt: num(r.cnt),
     tok: num(r.tok), usage: num(r.usage), ms: num(r.ms), last: num(r.last),
     ttft: r.ttft == null ? null : num(r.ttft) / 1000,
     first: num(r.first), model: r.model ?? "-",
-    tps: num(r.ms) > 0 ? num(r.tok) * 1000 / num(r.ms) : 0,
+    tps: num(r.ms) > 0 ? num(r.spd_tok) * 1000 / num(r.ms) : 0,
     rpm: (num(r.first) > 0 && num(r.last) > num(r.first)) ? num(r.cnt) / ((num(r.last) - num(r.first)) / 60000) : 0,
   }));
   // 每模型速度 · 今日（500 行窗口 + 8 条加权，对照 dmodels）
   const rows5 = h.prepare(
     `SELECT id, provider_id, model_id, status, started_at, first_token_at,
-      completed_at, duration_ms, output_tokens, reasoning_tokens FROM model_usage
-     WHERE query_source!='compact' ORDER BY COALESCE(completed_at, started_at) DESC LIMIT ${SPEED_ROWS}`).all();
+      completed_at, duration_ms, output_tokens, reasoning_tokens FROM model_usage u
+     WHERE query_source!='compact'${WS} ORDER BY COALESCE(completed_at, started_at) DESC LIMIT ${SPEED_ROWS}`).all(...wp);
   const stat = h.prepare(
     `SELECT model_id m, COUNT(*) cnt, MIN(COALESCE(completed_at,started_at)) mn,
       MAX(COALESCE(completed_at,started_at)) mx FROM model_usage
-     WHERE status='completed' AND query_source!='compact' AND COALESCE(completed_at,started_at)>=? AND model_id!='' GROUP BY model_id`).all(d0);
+     WHERE status='completed' AND query_source!='compact' AND COALESCE(completed_at,started_at)>=? AND model_id!=''${WS0} GROUP BY model_id`).all(d0, ...wp);
   const statMap = new Map(stat.map((r) => [r.m, r]));
   const est5 = estMap(rows5);
   const by = new Map();
@@ -211,42 +252,44 @@ function overview() {
   // 按模型 · 今日
   const bm = h.prepare(
     `SELECT model_id m, provider_id p,
-      CAST(SUM(output_tokens+reasoning_tokens+input_tokens+cache_creation_input_tokens+cache_read_input_tokens*${bill}) AS INT) tok, COUNT(*) cnt
-     FROM model_usage WHERE status='completed' AND completed_at>=? AND model_id!='' GROUP BY model_id, provider_id ORDER BY 3 DESC`).all(d0);
+      CAST(SUM(input_tokens+output_tokens) AS INT) tok, COUNT(*) cnt,
+      COALESCE(SUM(input_tokens),0) i, COALESCE(SUM(output_tokens),0) o
+     FROM model_usage WHERE status='completed' AND completed_at>=? AND model_id!=''${WS0} GROUP BY model_id, provider_id ORDER BY 3 DESC`).all(d0, ...wp);
   const total = 1 + bm.reduce((a, r) => a + num(r.tok), 0);
-  const byModel = bm.map((r) => ({ model: r.m, prov: provOf(r.p), tok: num(r.tok), cnt: num(r.cnt), pct: Math.round(num(r.tok) * 100 / total) }));
+  const byModel = bm.map((r) => ({ model: r.m, prov: provOf(r.p), tok: num(r.tok), cnt: num(r.cnt), pct: Math.round(num(r.tok) * 100 / total), cost: costOf(r.m, r.i, r.o) }));
+  sum.cost = bm.reduce((a, r) => a + costOf(r.m, r.i, r.o), 0);   // 今日成本（仅计有官方价的模型）
   // 按会话 · 今日（子代理归并）
   const ts = h.prepare(
     `SELECT CASE WHEN u.task_type='subagent_child' THEN '子代理' ELSE COALESCE(s.title, u.session_id) END title,
-      COUNT(*) cnt, CAST(SUM(u.output_tokens+u.reasoning_tokens+u.input_tokens+u.cache_creation_input_tokens+u.cache_read_input_tokens*${bill}) AS INT) tok
+      COUNT(*) cnt, CAST(SUM(u.input_tokens+u.output_tokens) AS INT) tok
      FROM model_usage u LEFT JOIN session s ON s.id=u.session_id
-     WHERE u.status='completed' AND u.completed_at>=? GROUP BY 1 ORDER BY 3 DESC LIMIT 20`).all(d0);
+     WHERE u.status='completed' AND u.completed_at>=?${WS} GROUP BY 1 ORDER BY 3 DESC LIMIT 20`).all(d0, ...wp);
   const bySession = ts.map((r) => ({ title: r.title, cnt: num(r.cnt), tok: num(r.tok) }));
   // 今日工具调用（turn_usage 有 completed_at）
   const tu = h.prepare(
     `SELECT COUNT(*) turns, COALESCE(SUM(tool_call_count),0) tools, COALESCE(SUM(tool_error_count),0) terr
-     FROM turn_usage WHERE completed_at>=? AND status='completed'`).get(d0);
+     FROM turn_usage WHERE completed_at>=? AND status='completed'${WS0}`).get(d0, ...wp);
   const tools = { turns: num(tu.turns), tools: num(tu.tools), terr: num(tu.terr) };
   // 今日会话数 / 今日压缩数
   const sc2 = h.prepare(
-    `SELECT COUNT(DISTINCT session_id) n FROM model_usage WHERE status='completed' AND completed_at>=?`).get(d0);
+    `SELECT COUNT(DISTINCT session_id) n FROM model_usage WHERE status='completed' AND completed_at>=?${WS0}`).get(d0, ...wp);
   const cpT = h.prepare(
-    `SELECT COUNT(*) n FROM model_usage WHERE query_source='compact' AND status='completed' AND completed_at>=?`).get(d0);
+    `SELECT COUNT(*) n FROM model_usage WHERE query_source='compact' AND status='completed' AND completed_at>=?${WS0}`).get(d0, ...wp);
   const sessN = num(sc2.n), compactN = num(cpT.n);
   // 会话压缩（30 天，未归档）
   const cutCp = Date.now() - 30 * 86400 * 1000;
   const cp = h.prepare(
     `SELECT COALESCE(s.title, u.session_id) title, COUNT(*) n, MAX(u.completed_at) last
      FROM model_usage u LEFT JOIN session s ON s.id=u.session_id
-     WHERE u.query_source='compact' AND u.status='completed' AND u.completed_at>=? AND s.time_archived IS NULL
-     GROUP BY u.session_id ORDER BY 3 DESC`).all(cutCp);
+     WHERE u.query_source='compact' AND u.status='completed' AND u.completed_at>=? AND s.time_archived IS NULL${WS}
+     GROUP BY u.session_id ORDER BY 3 DESC`).all(cutCp, ...wp);
   const compact = cp.map((r) => ({ title: r.title, n: num(r.n), last: num(r.last) }));
   // 近 7 日
   const day0w = d0 - 6 * 86400 * 1000;
   const wd = h.prepare(
     `SELECT strftime('%Y-%m-%d', completed_at/1000, 'unixepoch', 'localtime') d,
-      CAST(SUM(output_tokens+reasoning_tokens+input_tokens+cache_creation_input_tokens+cache_read_input_tokens*${bill}) AS INT) tok
-     FROM model_usage WHERE status='completed' AND completed_at>=? GROUP BY 1`).all(day0w);
+      CAST(SUM(input_tokens+output_tokens) AS INT) tok
+     FROM model_usage WHERE status='completed' AND completed_at>=?${WS0} GROUP BY 1`).all(day0w, ...wp);
   const sums = new Map(wd.map((r) => [r.d, num(r.tok)]));
   const days = [];
   for (let i = 0; i < 7; i++) {
@@ -256,15 +299,19 @@ function overview() {
     const key = `${dd.getFullYear()}-${p(dd.getMonth() + 1)}-${p(dd.getDate())}`;
     days.push({ label: `${p(dd.getMonth() + 1)}-${p(dd.getDate())}`, tok: sums.get(key) ?? 0 });
   }
-  return { sum, sessions, dmodels, byModel, bySession, compact, days, tools, sessN, compactN };
+  return { sum, sessions, dmodels, byModel, bySession, compact, days, tools, sessN, compactN, scope: proj ? "workspace" : "all" };
 }
 
 // ---- 当前会话统计（宿主在 tools/call 的 _meta 注入会话 ID，对照 zcode-context readSessionContext） ----
 function sessStats(sid) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sid)) return null;
   const h = db();
-  const meta = h.prepare(`SELECT title, time_created, time_updated FROM session WHERE id=?`).get(sid);
+  const meta = h.prepare(`SELECT title, time_created, time_updated, parent_id FROM session WHERE id=?`).get(sid);
   if (!meta) return null;
+  // 分支继承：fork 会话合并直系父会话用量（总量/按模型/工具轮数）；速度与上下文只看本会话
+  const pid = (typeof meta.parent_id === "string" && meta.parent_id) ? meta.parent_id : null;
+  const sids = pid ? [sid, pid] : [sid];
+  const inSid = sids.map(() => "?").join(",");
   const t = h.prepare(
     `SELECT COUNT(CASE WHEN query_source!='compact' THEN 1 END) n,
       COALESCE(SUM(CASE WHEN query_source!='compact' THEN output_tokens+reasoning_tokens END),0) out_r,
@@ -279,41 +326,70 @@ function sessStats(sid) {
       SUM(retry_count) retries,
       MIN(CASE WHEN query_source!='compact' THEN started_at END) first_req,
       MAX(COALESCE(completed_at,started_at)) last_done
-     FROM model_usage WHERE session_id=?`).get(sid);
+     FROM model_usage WHERE session_id IN (${inSid})`).get(...sids);
   // 上下文占用 = 最近一次完成请求的 input_tokens（OpenAI 口径已含 cache_read，勿再加 cr/cw 重复计）
   const ctxRow = h.prepare(
     `SELECT input_tokens i, cache_read_input_tokens cr,
       (SELECT model_id FROM model_usage WHERE session_id=? AND query_source!='compact' AND status='completed' ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 1) model
      FROM model_usage WHERE session_id=? AND status='completed' ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 1`).get(sid, sid);
-  // 会话总速度（简版）：全部完成请求的简单平均 = 总输出字数 / 总生成时长
-  const spd = h.prepare(
-    `SELECT COALESCE(SUM(output_tokens+reasoning_tokens),0) tok, COALESCE(SUM(duration_ms),0) dur
+  // 会话速度（对照简略面板口径：当前模型最后 8 条完成请求总输出 ÷ 总墙钟耗时；
+  // 最近完成 <90s 视为活跃跳过判活，否则按 part 表最近写入判活，空闲即归零）
+  const md = h.prepare(
+    `SELECT model_id FROM model_usage WHERE session_id=? AND query_source!='compact' AND status='completed'
+     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 1`).get(sid);
+  const spdRows = h.prepare(
+    `SELECT id, output_tokens, reasoning_tokens, started_at, completed_at
      FROM model_usage
-     WHERE session_id=? AND status='completed' AND query_source='main_turn'
-     AND duration_ms IS NOT NULL AND duration_ms>0`).get(sid);
+     WHERE session_id=? AND model_id=? AND status='completed' AND query_source='main_turn'
+     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT ${SPEED_WINDOW}`).all(sid, md?.model_id ?? "");
+  const est7 = estMap(spdRows.map((r) => ({ id: r.id, status: "completed", model_id: md?.model_id, output_tokens: r.output_tokens, reasoning_tokens: r.reasoning_tokens })));
+  let totTok = 0, totEl = 0, lastDone = 0;
+  for (const r of spdRows) {
+    const el = (num(r.started_at) > 0 && num(r.completed_at) > num(r.started_at)) ? num(r.completed_at) - num(r.started_at) : 0;
+    if (el <= 0) continue;
+    const tk = num(r.output_tokens) + num(r.reasoning_tokens);
+    const eff = tk > 0 ? tk : (est7[r.id] ?? 0);
+    if (eff <= 0) continue;
+    totTok += eff; totEl += el;
+    lastDone = Math.max(lastDone, num(r.completed_at));
+  }
+  let tps8 = totEl > 0 ? totTok * 1000 / totEl : 0;
+  const nowMs = Date.now();
+  if (tps8 > 0 && lastDone > 0 && lastDone < nowMs - 90 * 1000) {
+    let act = 0;
+    try {
+      const a = h.prepare(
+        `SELECT MAX(time_updated) m FROM (SELECT time_updated FROM part WHERE session_id=? ORDER BY rowid DESC LIMIT 200)`).get(sid);
+      act = num(a?.m);
+    } catch { act = 0; }
+    if (act < nowMs - 90 * 1000) tps8 = 0;
+  }
   const tu = h.prepare(
     `SELECT COUNT(*) turns, COALESCE(SUM(tool_call_count),0) tools, COALESCE(SUM(tool_error_count),0) tool_errs
-     FROM turn_usage WHERE session_id=?`).get(sid);
+     FROM turn_usage WHERE session_id IN (${inSid})`).get(...sids);
   const sub = h.prepare(
-    `SELECT COUNT(DISTINCT s.id) n, COALESCE(SUM(u.output_tokens+u.reasoning_tokens),0) tok
+    `SELECT COUNT(DISTINCT s.id) n, COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok
      FROM session s LEFT JOIN model_usage u ON u.session_id=s.id WHERE s.parent_id=?`).get(sid);
   const subList = h.prepare(
     `SELECT COALESCE(NULLIF(s.title,''), s.id) title, COUNT(u.id) cnt,
-      COALESCE(SUM(u.output_tokens+u.reasoning_tokens),0) tok
+      COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok
      FROM session s LEFT JOIN model_usage u ON u.session_id=s.id
      WHERE s.parent_id=? GROUP BY s.id HAVING cnt>0 OR tok>0 ORDER BY tok DESC LIMIT 20`).all(sid)
     .map((r) => ({ title: r.title, cnt: num(r.cnt), tok: num(r.tok) }));
-  const byModel = h.prepare(
-    `SELECT u.model_id m, COUNT(*) cnt, COALESCE(SUM(u.output_tokens+u.reasoning_tokens),0) tok,
+  const byModelRows = h.prepare(
+    `SELECT u.model_id m, COUNT(*) cnt, COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok,
+      COALESCE(SUM(u.input_tokens),0) i, COALESCE(SUM(u.output_tokens),0) o,
       (SELECT CAST((u2.output_tokens+u2.reasoning_tokens)*1000.0/u2.duration_ms AS INT)
        FROM model_usage u2
-       WHERE u2.session_id=u.session_id AND u2.model_id=u.model_id
+       WHERE u2.session_id IN (${inSid}) AND u2.model_id=u.model_id
          AND u2.status='completed' AND u2.query_source='main_turn'
          AND u2.duration_ms>0 AND (u2.output_tokens+u2.reasoning_tokens)>0
        ORDER BY COALESCE(u2.completed_at,u2.started_at) DESC LIMIT 1) last_tps
-     FROM model_usage u WHERE u.session_id=? AND u.query_source!='compact'
-     GROUP BY u.model_id ORDER BY tok DESC`).all(sid)
-    .map((r) => ({ model: r.m ?? "-", cnt: num(r.cnt), tok: num(r.tok), lastTps: r.last_tps == null ? null : num(r.last_tps) }));
+     FROM model_usage u WHERE u.session_id IN (${inSid}) AND u.query_source!='compact'
+     GROUP BY u.model_id ORDER BY tok DESC`).all(...sids, ...sids);
+  const byModel = byModelRows
+    .map((r) => ({ model: r.m ?? "-", cnt: num(r.cnt), tok: num(r.tok), lastTps: r.last_tps == null ? null : num(r.last_tps), cost: costOf(r.m, r.i, r.o) }));
+  const sessCost = byModelRows.reduce((a, r) => a + costOf(r.m, r.i, r.o), 0);   // 会话成本（含分支继承，仅计有官方价的模型）
   const durMs = Math.max(0, num(t.last_done) - num(meta.time_created));
   // 本会话真实 token 总量：input + output（含思考，output 已是 output_tokens 含 reasoning 的口径，见 out_p 交叉验证）
   const usedTok = num(t.inp) + num(t.out_p);
@@ -323,10 +399,10 @@ function sessStats(sid) {
     ctx: ctxRow ? num(ctxRow.i) : 0,
     total: ModelWin[ctxRow?.model] ?? null,
     model: ctxRow?.model ?? "-",
-    n: num(t.n), outR: num(t.out_r), usedTok,
+    n: num(t.n), outR: num(t.out_r), usedTok, cost: sessCost,
     cacheHit: num(t.inp) > 0 ? num(t.cr) / num(t.inp) : null,
     ttft: t.ttft == null ? null : num(t.ttft) / 1000,
-    tps: num(spd.dur) > 0 ? num(spd.tok) * 1000 / num(spd.dur) : 0,
+    tps: tps8, tpsModel: md?.model_id ?? null,
     turns: num(tu.turns), tools: num(tu.tools), toolErrs: num(tu.tool_errs),
     errs: num(t.errs), cancels: num(t.cancels), compacts: num(t.compacts), retries: num(t.retries),
     durMs, firstReq: num(t.first_req), lastDone: num(t.last_done),
@@ -359,7 +435,7 @@ function handle(msg) {
     // 会话绑定：宿主注入 _meta["com.zcode/request-context"].session_id（对照 zcode-context）
     const sid = params?._meta?.["com.zcode/request-context"]?.session_id;
     if (!SessLogged) { SessLogged = true; log("session binding:", sid ? `ok ${sid}` : `absent (meta keys: ${params?._meta ? Object.keys(params._meta).join(",") : "none"})`); }
-    return { content: [], structuredContent: { ...overview(), sess: sid ? sessStats(sid) : null } };
+    return { content: [], structuredContent: { ...overview(sid), sess: sid ? sessStats(sid) : null } };
   }
   if (method === "resources/list") {
     return { resources: [{ uri: HtmlUri, name: "Token 统计面板", mimeType: "text/html;profile=mcp-app" }] };

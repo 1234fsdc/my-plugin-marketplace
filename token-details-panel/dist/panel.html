@@ -32,7 +32,7 @@
   .tabs button{flex:1;border:0;background:transparent;color:var(--muted);font:600 12px/1 var(--sans);
     padding:7px 0;border-radius:6px;cursor:pointer;white-space:nowrap}
   .tabs button.on{background:var(--accent);color:#fff}
-  /* 磁贴网格：本会话 + 全局总览共用 */
+  /* 磁贴网格：本会话 + 本工作区共用 */
   .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .t3{grid-template-columns:repeat(3,minmax(0,1fr))}
   .tile{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:1px}
@@ -87,7 +87,7 @@
   </div>
   <div class="tabs" role="tablist" style="margin:0">
     <button id="tab-sess" role="tab" aria-selected="true">本会话</button>
-    <button id="tab-all" role="tab" aria-selected="false">全局总览</button>
+    <button id="tab-all" role="tab" aria-selected="false">本工作区</button>
   </div>
   <div id="body"><div class="note">连接中…</div></div>
 </main><script>
@@ -208,7 +208,7 @@ function render(D) {
 // ---- 本会话视图：磁贴网格 ----
 function renderSess(D) {
   const s = D.sess;
-  if (!s) return `<div class="note">会话绑定不可用：宿主未提供会话 ID（可能面板在会话外打开）。可切到「全局总览」查看统计。</div>`;
+  if (!s) return `<div class="note">会话绑定不可用：宿主未提供会话 ID（可能面板在会话外打开）。可切到「本工作区」查看统计。</div>`;
   const K = (v) => v == null ? "-" : (v * 100).toFixed(0) + "%";
   // 上下文占用：真实口径（已用 = 最近请求 input_tokens；上限 = 宿主 modelConfigRules contextWindow）
   const pct = s.total > 0 ? Math.min(100, Math.round(s.ctx * 100 / s.total)) : null;
@@ -222,9 +222,10 @@ function renderSess(D) {
     <span class="v">${Kcn(s.ctx)}<small>${s.total > 0 ? " / " + Kcn(s.total) + " tokens" : " tokens"}</small></span>
     <div class="track">${pct != null ? `<i style="width:${pct}%"></i>` : ""}</div>
     <span class="s">${sub}</span></div>`;
-  html += tile("速度", `<span style="color:var(--accent)">${s.tps.toFixed(1)}<small> t/s</small></span>`, `全轮平均 · 时长 ${FmtDur(s.durMs)}`);
+  html += tile("速度", `<span style="color:var(--accent)">${s.tps.toFixed(1)}<small> t/s</small></span>`,
+    s.tps > 0 ? `${esc((s.tpsModel ?? "").split("/").pop() ?? s.tpsModel)} · 近8轮` : `空闲 90s+`);
   html += tile("缓存命中", `<span style="color:var(--up)">${K(s.cacheHit)}</span>`, `${s.n} 次请求`);
-  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮`);
+  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮${s.cost != null ? ` · 约 $${s.cost >= 100 ? s.cost.toFixed(0) : s.cost.toFixed(2)}` : ""}`);
   html += tile("工具调用", `${s.tools}`, `取消${s.cancels} · 重试${s.retries} · 压缩${s.compacts}`);
   if (s.sub.n > 0 && s.sub.list.length) {
     html += listTile("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x) =>
@@ -236,13 +237,14 @@ function renderSess(D) {
   html += listTile("bymodel", "按模型", s.byModel, (m) =>
     `<div class="lrow"><span class="n">${esc(m.model)}</span>`
     + `<span class="x"><span class="num">${m.cnt} 次</span><span class="num">${Kcn(m.tok)} tok</span>`
-    + `<span class="num">${m.lastTps != null ? m.lastTps + " t/s" : "-"}</span></span></div>`
+    + `<span class="num">${m.lastTps != null ? m.lastTps + " t/s" : "-"}</span>`
+    + `<span class="num">${m.cost != null ? "$" + (m.cost >= 100 ? m.cost.toFixed(0) : m.cost.toFixed(2)) : "-"}</span></span></div>`
     + `<div class="lbar"><i style="width:${Math.round(m.tok * 100 / mx)}%"></i></div>`);
   html += `</div>`;
   return html;
 }
 
-// ---- 全局总览视图：同一套磁贴语言 ----
+// ---- 本工作区视图：同一套磁贴语言 ----
 function renderAll(D) {
   const s = D.sum;
   // 旧版 server 可能没有这些字段（宿主进程未重启时）：兜底不崩
@@ -253,15 +255,17 @@ function renderAll(D) {
   const span = s.mx > s.mn ? FmtMs(s.mn) + " → " + FmtMs(s.mx) : "-";
   let html = `<div class="tiles">`;
   // 主磁贴：今日 token 总量（结构对齐本会话的上下文占用主磁贴）
-  html += `<div class="tile ctx-t w2"><span class="l">今日 Token 用量</span>
+  const cost = s.cost != null ? ` · 约 $${s.cost >= 100 ? s.cost.toFixed(0) : s.cost.toFixed(2)}` : "";
+  const scopeTip = D.scope === "workspace" ? "本工作区" : "全部工作区";
+  html += `<div class="tile ctx-t w2"><span class="l">今日 Token 用量 · ${scopeTip}</span>
     <span class="v">${Kcn(total)}<small> tokens</small></span>
-    <span class="s">${s.n} 次请求 · ${span}</span></div>`;
+    <span class="s">${s.n} 次请求 · ${span}${cost}</span></div>`;
   html += tile("今日请求", `${s.n}<small> 次</small>`, `${D.sessions.length} 个活跃会话`);
   html += tile("输入 / 输出",
     `<span style="color:var(--accent)">${Kcn(s.inp)}<small> / ${Kcn(s.out)}</small></span>`,
     `${D.byModel.length} 个模型 · 输出含思考`);
   html += tile("今日工具调用", `${tools.tools}`, `${tools.turns} 轮 · 错误 ${tools.terr}`);
-  html += tile("对话过会话", `${sessN}<small> 个</small>`, `压缩 ${compactN} 次`);
+  html += tile("本工作区会话", `${sessN}<small> 个</small>`, `压缩 ${compactN} 次`);
   html += listTile("sessions", "活跃会话 · 30 分钟窗口", D.sessions, (x) => {
     const c = SpdC(x.tps), ttft = x.ttft != null ? x.ttft.toFixed(1) + "s" : "-";
     return `<div class="lrow" style="flex-direction:column;align-items:stretch;gap:1px;padding:6px 0">`
@@ -272,25 +276,25 @@ function renderAll(D) {
   const shareRow = (total) => (x) => {
     const p = Math.round(x.tok * 100 / total);
     return `<div class="lrow"><span class="n">${esc(x.title ?? x.model)}</span>`
-      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span></span></div>`
+      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span>${x.cost != null ? `<span class="num">$${x.cost >= 100 ? x.cost.toFixed(0) : x.cost.toFixed(2)}</span>` : ""}</span></div>`
       + `<div class="lbar"><i style="width:${p}%"></i></div>`;
   };
   const tByModel = D.byModel.reduce((a, x) => a + x.tok, 0) || 1;
   const tBySession = D.bySession.reduce((a, x) => a + x.tok, 0) || 1;
-  html += listTile("bySession", "按会话 · 今日", D.bySession, shareRow(tBySession), "今日暂无数据");
-  html += listTile("byModel", "按模型 · 今日", D.byModel, shareRow(tByModel), "今日暂无数据");
-  html += listTile("dmodels", "每模型速度 · 今日", D.dmodels, (m) => {
+  html += listTile("bySession", "按会话 · 今日（本工作区）", D.bySession, shareRow(tBySession), "今日暂无数据");
+  html += listTile("byModel", "按模型 · 今日（本工作区）", D.byModel, shareRow(tByModel), "今日暂无数据");
+  html += listTile("dmodels", "每模型速度 · 今日（本工作区）", D.dmodels, (m) => {
     const c = SpdC(m.tpsV), w = Math.min(100, Math.round(m.tpsV / 120 * 100));
     return `<div class="lrow"><span class="n">${esc(m.model)}</span>`
       + `<span class="x"><span>${esc(m.prov)}</span><span class="num">${m.cnt} 次</span><span class="num">${m.tps} t/s</span></span></div>`
       + `<div class="lbar"><i class="${c}" style="width:${w}%"></i></div>`;
   }, "今日暂无数据");
-  html += listTile("compact", `会话压缩 · 30 天内 ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
+  html += listTile("compact", `会话压缩 · 30 天内（本工作区） ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
     `<div class="lrow"><span class="n">${esc(c.title)}</span>`
     + `<span class="x"><span class="num">${c.n} 次</span><span class="num">${FmtMs(c.last)}</span></span></div>`, "30 天内无压缩会话");
   if (D.days.some((d) => d.tok > 0)) {
     const mx = Math.max(...D.days.map((d) => d.tok));
-    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 token</span>`
+    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 token（本工作区）</span>`
       + D.days.map((d) =>
         `<div class="day"><span class="num">${d.label}</span>`
         + `<div class="day-bar"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>`
