@@ -58,7 +58,6 @@
   "writing-great-skills": "编写高质量 SKILL.md 的参考指南",
   "ego-browser": "浏览器自动化：打开和操作网站、填表单、点按钮、截图、提取页面数据",
   "computer-use": "桌面自动化：用鼠标、键盘和 UI 元素控制电脑上的原生应用",
-  "open-code-review-delegate": "代码审查委托：宿主代理执行审查，OCR 负责文件选择与规则解析",
   "review-plan": "方案评审：多维度审查方案并整合为评价和改进建议",
   "zcode-guide": "ZCode 使用指南：诊断命令、钩子、MCP、插件、技能等问题",
   "documents": "Office文档处理：DOCX文档的创建、读取与编辑",

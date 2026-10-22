@@ -135,7 +135,8 @@ def classify_desc(desc):
         prefix = desc[: desc.rfind(tail)]
         first_cjk = CJK_RE.search(desc)
         if first_cjk and first_cjk.start() <= 12 and not ASCII_WORD_RE.search(prefix):
-            return "legacy", tail
+            # 保留英文段之后的尾随内容（如 "NOT for 代码评审…"），否则重写时会丢句子
+            return "legacy", desc[desc.rfind(tail):]
     return "protected", None
 
 
