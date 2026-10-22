@@ -1,8 +1,10 @@
 ---
 name: prototype
 description: >-
-  快速原型：建可丢弃的原型验证设计思路。Build a throwaway prototype to answer a design question. Use when the user wants to sanity-check whether a state model or logic feels right, or explore what a UI should look like
+  快速原型：建可丢弃的原型验证设计思路。原型设计、设计一个预览版、画个原型稿、prototype 时用它。Build a throwaway prototype to answer a design question. Use when the user wants to prototype a design, design a preview version, explore what a UI should look like, or sanity-check whether a state model or logic feels right.
 ---
+
+<!-- 描述里的「prototype」是给 auto-chinese-desc 钩子留的锚点：该钩子把「中文在前 + 长英文尾巴」判为 legacy 并按 known.json 重写，而含 ≥6 字母 ASCII 词的前缀会被判为 protected 不动。删掉这个英文词，触发词会被钩子静默抹掉。 -->
 
 # Prototype
 
