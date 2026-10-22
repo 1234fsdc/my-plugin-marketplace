@@ -1,10 +1,10 @@
 ---
 name: prototype
 description: >-
-  快速原型：建可丢弃的原型验证设计思路。原型设计、设计一个预览版、画个原型稿、prototype 时用它。Build a throwaway prototype to answer a design question. Use when the user wants to prototype a design, design a preview version, explore what a UI should look like, or sanity-check whether a state model or logic feels right.
+  快速原型：建可丢弃的原型验证设计思路。prototype 时用它。Use when the user says "原型设计"/"设计一个预览版"/"画个原型稿"/"prototype", or wants to prototype a design, design a preview version, or sanity-check whether a state model or logic feels right.
 ---
 
-<!-- 描述里的「prototype」是给 auto-chinese-desc 钩子留的锚点：该钩子把「中文在前 + 长英文尾巴」判为 legacy 并按 known.json 重写，而含 ≥6 字母 ASCII 词的前缀会被判为 protected 不动。删掉这个英文词，触发词会被钩子静默抹掉。 -->
+<!-- 描述里同时带「prototype」锚点和 MUST/Use when 句式，是三个硬约束的结果，改描述前先读这段：<br>① auto-chinese-desc 钩子把「中文在前 + 长英文尾巴」判为 legacy 并按 known.json 重写，中文触发词会被抹掉——中文段里必须留一个 ≥6 字母 ASCII 词（本行用 prototype）使判定变 protected。<br>② ZCode 注入的技能清单里描述超过 249 字符会被截成「249+省略号」，所以描述总长要控制在 249 以内。<br>③ 要用 "Use when the user says ..." 这种显式句式，模型才知道「提到这些词就加载我」，而不是靠描述里的名词。 -->
 
 # Prototype
 
