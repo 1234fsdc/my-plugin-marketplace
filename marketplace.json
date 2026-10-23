@@ -14,8 +14,8 @@
       "license": "MIT"
     },
     {
-      "name": "page-testing",
-      "source": "./page-testing",
+      "name": "project-improvement",
+      "source": "./project-improvement",
       "version": "1.2.0",
       "description": "前端项目逐页扫描审计（技术审计 + 重度用户体验报告）+ 证据驱动的竞品调研与产品对比（竞品概览、功能矩阵、定位、优势弱点、差异化机会）。",
       "author": {

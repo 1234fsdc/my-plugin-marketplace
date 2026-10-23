@@ -36,7 +36,7 @@ my-plugin-marketplace/
 | 插件 | 说明 |
 |---|---|
 | `auto-chinese-desc` | 新安装的 Skill 自动补中文描述 |
-| `page-testing` | 前端项目逐页扫描审计 |
+| `project-improvement` | 前端项目逐页扫描审计 + 竞品调研 |
 | `token-details-panel` | 侧边栏 Token 统计面板 |
 | `mattpocock-skills` | Matt Pocock 工程技能（精简版，去掉了 to-spec） |
 | `document-skills` | Excel / Word / PowerPoint / PDF 文档处理套件 |
