@@ -1,6 +1,7 @@
-# competitor-analysis
-
-这是一个独立的产品竞品调研 Skill，不属于 `page-testing`。它把 PM 竞品分析、Anthropic `competitive-brief` 的竞品简报框架，以及项目原先的竞品分析需求合并为一套证据驱动的研究流程。
+---
+name: competitor-analysis
+description: 证据驱动的竞品调研与产品对比。用户说调研竞品、分析竞争对手、竞品对比、拆解产品、研究赛道、找差异化机会、做 Battle Card、对比功能/定价/定位时使用。输出竞品概览、功能矩阵、定位分析、优势弱点、机会威胁和产品建议。简单名词解释、纯网页搜索不用。
+---
 
 ## 适用场景
 
