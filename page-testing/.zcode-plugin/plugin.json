@@ -1,7 +1,7 @@
 {
   "name": "page-testing",
-  "version": "1.3.0",
-  "description": "前端项目逐页扫描审计（技术审计 + 重度用户体验报告）+ 证据驱动的竞品调研与产品对比 + full-acceptance 全流程验收工作流（测→修→审→提交→复测直到零新问题，8 维度，网页/桌面/安卓/接口四线自动识别）。",
+  "version": "1.4.0",
+  "description": "前端项目逐页扫描审计（技术审计 + 重度用户体验报告）+ 证据驱动的竞品调研与产品对比 + full-acceptance 全流程验收工作流（基线全量 + 定向复测直到零新问题，8 维度，网页/桌面/安卓/接口四线自动识别）。",
   "author": { "name": "user" },
   "license": "MIT",
   "skills": "skills"
