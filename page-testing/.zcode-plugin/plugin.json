@@ -1,7 +1,7 @@
 {
   "name": "page-testing",
-  "version": "1.6.0",
-  "description": "前端项目逐页扫描审计（技术审计 + 重度用户体验报告）+ 证据驱动的竞品调研与产品对比；附 full-acceptance 全流程验收工作流脚本（装入全局工作流目录后使用，见 README）。",
+  "version": "1.7.0",
+  "description": "前端项目逐页扫描审计（技术审计 + 重度用户体验报告）+ 证据驱动的竞品调研与产品对比。",
   "author": { "name": "user" },
   "license": "MIT",
   "skills": "skills"
