@@ -1,7 +1,7 @@
 ---
 name: diagnosing-bugs
 description: >-
-  Bug 诊断：复现→最小化→假设→定位→修复→回归测试。Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this", or reports something broken/throwing/failing/slow
+  Bug 诊断：复现→最小化→假设→定位→修复→回归测试。Diagnosis loop for hard bugs and performance regressions. Use when the user says "diagnose"/"debug this"/"修复", or reports something broken/throwing/failing/slow
 ---
 
 # Diagnosing Bugs
