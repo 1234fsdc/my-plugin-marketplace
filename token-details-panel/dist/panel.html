@@ -76,7 +76,25 @@
   .day{display:grid;grid-template-columns:52px 1fr auto;align-items:center;gap:8px;font-size:12px;padding:3px 0}
   .day-bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
   .day-bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
+  .day-bar.cost{margin-top:2px}.day-bar.cost i{background:var(--up)}
   .day .num{color:var(--muted);font-size:11px}
+  /* 上下文组成：堆叠条 + 图例 */
+  .comp{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:7px 0;background:var(--soft)}
+  .comp i{display:block;height:100%}
+  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--muted)}
+  .legend b{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px}
+  /* 逐请求趋势：每根柱 = 一次请求（输入在下、输出在上） */
+  .trend{display:flex;align-items:flex-end;gap:2px;height:54px;margin-top:8px}
+  .trend .b{flex:1;min-width:2px;height:100%;display:flex;flex-direction:column;justify-content:flex-end}
+  .trend .b u{display:block;background:var(--up);opacity:.55}
+  .trend .b i{display:block;background:var(--accent)}
+  .trend .b.c i,.trend .b.c u{background:var(--down);opacity:.9}
+  /* 活动热力图：7 行 × 8 列（按列排周） */
+  .heat{display:grid;grid-template-rows:repeat(7,1fr);grid-auto-flow:column;grid-auto-columns:1fr;gap:3px;height:112px;margin:8px 0 4px}
+  .heat i{display:block;border-radius:2px;background:var(--soft)}
+  /* 时间范围切换 */
+  .ranges{margin-bottom:8px}
+  .ranges button{padding:5px 0;font-size:11.5px}
 </style>
 </head>
 <body>
@@ -158,6 +176,7 @@ const Kcn = (n) => {
   if (n >= 1e4) return (n / 1e4).toFixed(1).replace(/\.0$/, "") + "万";
   return n.toLocaleString("en-US");
 };
+const FmtCost = (c) => "$" + (c >= 100 ? c.toFixed(0) : c.toFixed(2));
 const SpdC = (v) => (v >= 80 ? "up" : v >= 50 ? "warn" : "down");
 const FmtMs = (ms) => {
   if (!ms) return "-";
@@ -193,12 +212,15 @@ function listTile(key, label, items, rowFn, empty = "暂无数据") {
   return html + `</div>`;
 }
 document.addEventListener("click", (ev) => {
+  const r = ev.target.closest?.("[data-range]");
+  if (r) { Range = r.dataset.range; refresh(); return; }
   const b = ev.target.closest?.(".more");
   if (!b) return;
   const k = b.dataset.key;
   if (Expand.has(k)) Expand.delete(k); else Expand.add(k);
   if (LastD) render(LastD);   // 立即重绘，不等下一轮轮询
 });
+let Range = "today";   // 本工作区时间范围：today | 7d | 30d | all
 
 function render(D) {
   document.getElementById("stamp").textContent = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -225,8 +247,24 @@ function renderSess(D) {
   html += tile("速度", `<span style="color:var(--accent)">${s.tps.toFixed(1)}<small> t/s</small></span>`,
     s.tps > 0 ? `${esc((s.tpsModel ?? "").split("/").pop() ?? s.tpsModel)} · 近8轮` : `空闲 90s+`);
   html += tile("缓存命中", `<span style="color:var(--up)">${K(s.cacheHit)}</span>`, `${s.n} 次请求`);
-  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮${s.cost != null ? ` · 约 $${s.cost >= 100 ? s.cost.toFixed(0) : s.cost.toFixed(2)}` : ""}`);
+  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮${s.cost != null ? ` · 约 ${FmtCost(s.cost)}` : ""}`);
   html += tile("工具调用", `${s.tools}`, `取消${s.cancels} · 重试${s.retries} · 压缩${s.compacts}`);
+  // 上下文组成（估算：part 正文/工具输入输出按字符数折算）
+  const CAT = { user: "用户消息", assistant: "助手回复", reasoning: "推理", tool: "工具结果", file: "文件", compact: "压缩摘要" };
+  const CCOL = { user: "var(--accent)", assistant: "var(--up)", reasoning: "var(--warn)", tool: "var(--down)", file: "var(--faint)", compact: "var(--muted)" };
+  const cTot = (s.compose ?? []).reduce((a, x) => a + x.tok, 0);
+  if (cTot > 0) {
+    html += `<div class="tile w2"><span class="l">上下文组成 · 估算（折算到当前窗口）</span>
+      <div class="comp">${s.compose.map((x) => `<i style="width:${(x.tok * 100 / cTot).toFixed(1)}%;background:${CCOL[x.cat] ?? "var(--faint)"}"></i>`).join("")}</div>
+      <div class="legend">${s.compose.map((x) => `<span><b style="background:${CCOL[x.cat] ?? "var(--faint)"}"></b>${CAT[x.cat] ?? esc(x.cat)} ${Kcn(x.tok)} · ${Math.round(x.tok * 100 / cTot)}%</span>`).join("")}</div></div>`;
+  }
+  // 逐请求趋势：每根柱一次完成请求，橙色 = 压缩请求
+  if (s.trend?.length) {
+    const tm = Math.max(1, ...s.trend.map((x) => x.i + x.o));
+    html += `<div class="tile w2"><span class="l">逐请求上下文 · 近 ${s.trend.length} 次</span>
+      <div class="trend">${s.trend.map((x) => `<div class="b${x.c ? " c" : ""}"><u style="height:${(x.o * 100 / tm).toFixed(1)}%"></u><i style="height:${(x.i * 100 / tm).toFixed(1)}%"></i></div>`).join("")}</div>
+      <span class="s">柱高 = 输入（深）+ 输出（浅）；橙色 = 压缩请求</span></div>`;
+  }
   if (s.sub.n > 0 && s.sub.list.length) {
     html += listTile("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x) =>
       `<div class="lrow"><span class="n">${esc(x.title)}</span>`
@@ -238,8 +276,24 @@ function renderSess(D) {
     `<div class="lrow"><span class="n">${esc(m.model)}</span>`
     + `<span class="x"><span class="num">${m.cnt} 次</span><span class="num">${Kcn(m.tok)} tok</span>`
     + `<span class="num">${m.lastTps != null ? m.lastTps + " t/s" : "-"}</span>`
-    + `<span class="num">${m.cost != null ? "$" + (m.cost >= 100 ? m.cost.toFixed(0) : m.cost.toFixed(2)) : "-"}</span></span></div>`
+    + `<span class="num">${m.cost != null ? FmtCost(m.cost) : "-"}</span></span></div>`
     + `<div class="lbar"><i style="width:${Math.round(m.tok * 100 / mx)}%"></i></div>`);
+  // 工具明细：命令执行 / 文件活动 / 技能加载（来自 part 表，本会话 + 分支父会话）
+  if (s.cmds?.length) {
+    html += listTile("cmds", `命令执行 · ${s.cmds.reduce((a, x) => a + x.n, 0)} 次`, s.cmds, (x) =>
+      `<div class="lrow"><span class="n">${esc(x.prog)}</span>`
+      + `<span class="x"><span class="num">${x.n} 次</span><span class="num">${FmtMs(x.last)}</span></span></div>`);
+  }
+  if (s.files?.length) {
+    html += listTile("files", `文件活动 · ${s.files.reduce((a, x) => a + x.n, 0)} 次`, s.files, (x) =>
+      `<div class="lrow"><span class="n">${esc(String(x.path).split(/[\\/]/).pop())}</span>`
+      + `<span class="x"><span class="num">读 ${x.read} · 写 ${x.write}</span><span class="num">${x.n} 次</span></span></div>`);
+  }
+  if (s.skills?.length) {
+    html += listTile("skills", `技能加载 · ${s.skills.reduce((a, x) => a + x.n, 0)} 次`, s.skills, (x) =>
+      `<div class="lrow"><span class="n">${esc(x.name)}</span>`
+      + `<span class="x"><span class="num">${x.n} 次</span><span class="num">${FmtMs(x.last)}</span></span></div>`);
+  }
   html += `</div>`;
   return html;
 }
@@ -253,18 +307,22 @@ function renderAll(D) {
   const compactN = D.compactN ?? 0;
   const total = s.total ?? (s.inp + s.out);   // 旧 server 兜底
   const span = s.mx > s.mn ? FmtMs(s.mn) + " → " + FmtMs(s.mx) : "-";
-  let html = `<div class="tiles">`;
-  // 主磁贴：今日 token 总量（结构对齐本会话的上下文占用主磁贴）
-  const cost = s.cost != null ? ` · 约 $${s.cost >= 100 ? s.cost.toFixed(0) : s.cost.toFixed(2)}` : "";
+  const rl = D.rangeLabel ?? "今日";
+  // 时间范围切换（今日 / 7 天 / 30 天 / 全部），点击由 document 委托处理
+  let html = `<div class="tabs ranges" role="tablist">${[["today", "今日"], ["7d", "7 天"], ["30d", "30 天"], ["all", "全部"]]
+    .map(([k, l]) => `<button data-range="${k}" class="${(D.range ?? "today") === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  html += `<div class="tiles">`;
+  // 主磁贴：所选范围 token 总量（结构对齐本会话的上下文占用主磁贴）
+  const cost = s.cost != null ? ` · 约 ${FmtCost(s.cost)}` : "";
   const scopeTip = D.scope === "workspace" ? "本工作区" : "全部工作区";
-  html += `<div class="tile ctx-t w2"><span class="l">今日 Token 用量 · ${scopeTip}</span>
+  html += `<div class="tile ctx-t w2"><span class="l">${rl} Token 用量 · ${scopeTip}</span>
     <span class="v">${Kcn(total)}<small> tokens</small></span>
     <span class="s">${s.n} 次请求 · ${span}${cost}</span></div>`;
-  html += tile("今日请求", `${s.n}<small> 次</small>`, `${D.sessions.length} 个活跃会话`);
+  html += tile(`${rl}请求`, `${s.n}<small> 次</small>`, `${D.sessions.length} 个活跃会话`);
   html += tile("输入 / 输出",
     `<span style="color:var(--accent)">${Kcn(s.inp)}<small> / ${Kcn(s.out)}</small></span>`,
     `${D.byModel.length} 个模型 · 输出含思考`);
-  html += tile("今日工具调用", `${tools.tools}`, `${tools.turns} 轮 · 错误 ${tools.terr}`);
+  html += tile(`${rl}工具调用`, `${tools.tools}`, `${tools.turns} 轮 · 错误 ${tools.terr}`);
   html += tile("本工作区会话", `${sessN}<small> 个</small>`, `压缩 ${compactN} 次`);
   html += listTile("sessions", "活跃会话 · 30 分钟窗口", D.sessions, (x) => {
     const c = SpdC(x.tps), ttft = x.ttft != null ? x.ttft.toFixed(1) + "s" : "-";
@@ -276,29 +334,41 @@ function renderAll(D) {
   const shareRow = (total) => (x) => {
     const p = Math.round(x.tok * 100 / total);
     return `<div class="lrow"><span class="n">${esc(x.title ?? x.model)}</span>`
-      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span>${x.cost != null ? `<span class="num">$${x.cost >= 100 ? x.cost.toFixed(0) : x.cost.toFixed(2)}</span>` : ""}</span></div>`
+      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span>${x.cost != null ? `<span class="num">${FmtCost(x.cost)}</span>` : ""}</span></div>`
       + `<div class="lbar"><i style="width:${p}%"></i></div>`;
   };
   const tByModel = D.byModel.reduce((a, x) => a + x.tok, 0) || 1;
   const tBySession = D.bySession.reduce((a, x) => a + x.tok, 0) || 1;
-  html += listTile("bySession", "按会话 · 今日（本工作区）", D.bySession, shareRow(tBySession), "今日暂无数据");
-  html += listTile("byModel", "按模型 · 今日（本工作区）", D.byModel, shareRow(tByModel), "今日暂无数据");
-  html += listTile("dmodels", "每模型速度 · 今日（本工作区）", D.dmodels, (m) => {
+  html += listTile("bySession", `按会话 · ${rl}（本工作区）`, D.bySession, shareRow(tBySession), `${rl}暂无数据`);
+  html += listTile("byModel", `按模型 · ${rl}（本工作区）`, D.byModel, shareRow(tByModel), `${rl}暂无数据`);
+  html += listTile("dmodels", `每模型速度 · ${rl}（本工作区）`, D.dmodels, (m) => {
     const c = SpdC(m.tpsV), w = Math.min(100, Math.round(m.tpsV / 120 * 100));
     return `<div class="lrow"><span class="n">${esc(m.model)}</span>`
       + `<span class="x"><span>${esc(m.prov)}</span><span class="num">${m.cnt} 次</span><span class="num">${m.tps} t/s</span></span></div>`
       + `<div class="lbar"><i class="${c}" style="width:${w}%"></i></div>`;
-  }, "今日暂无数据");
+  }, `${rl}暂无数据`);
   html += listTile("compact", `会话压缩 · 30 天内（本工作区） ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
     `<div class="lrow"><span class="n">${esc(c.title)}</span>`
     + `<span class="x"><span class="num">${c.n} 次</span><span class="num">${FmtMs(c.last)}</span></span></div>`, "30 天内无压缩会话");
+  // 活动热力图：近 8 周，颜色越深当天 token 越多
+  if (D.heat?.some((x) => x.tok > 0)) {
+    const hm = Math.max(1, ...D.heat.map((x) => x.tok));
+    const lvl = (t) => t <= 0 ? 0 : t < hm * 0.15 ? 1 : t < hm * 0.35 ? 2 : t < hm * 0.65 ? 3 : 4;
+    const op = [0, 0.18, 0.35, 0.6, 1];
+    html += `<div class="tile w2"><span class="l">活动热力图 · 近 8 周</span>`
+      + `<div class="heat">${D.heat.map((x) => `<i title="${x.d} ${Kcn(x.tok)}" style="background:${x.tok > 0 ? "var(--accent)" : "var(--soft)"};opacity:${x.tok > 0 ? op[lvl(x.tok)] : 1}"></i>`).join("")}</div>`
+      + `<span class="s">越深 = 当天 token 越多（本工作区）</span></div>`;
+  }
+  // 近 7 日：token 与成本成对柱
   if (D.days.some((d) => d.tok > 0)) {
-    const mx = Math.max(...D.days.map((d) => d.tok));
-    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 token（本工作区）</span>`
+    const mx = Math.max(1, ...D.days.map((d) => d.tok));
+    const mc = Math.max(1e-6, ...D.days.map((d) => d.cost ?? 0));
+    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 · token 与成本（本工作区）</span>`
       + D.days.map((d) =>
         `<div class="day"><span class="num">${d.label}</span>`
-        + `<div class="day-bar"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>`
-        + `<span class="num">${Kcn(d.tok)}</span></div>`).join("") + `</div>`;
+        + `<div><div class="day-bar"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>`
+        + `<div class="day-bar cost"><i style="width:${Math.round((d.cost ?? 0) * 100 / mc)}%"></i></div></div>`
+        + `<span class="num">${Kcn(d.tok)} · ${FmtCost(d.cost ?? 0)}</span></div>`).join("") + `</div>`;
   }
   html += `</div>`;
   return html;
@@ -324,11 +394,21 @@ async function refresh() {
   if (Dead || refreshing || document.hidden) return;
   refreshing = true;
   try {
-    const d = await callTool("get_tokens_overview");
+    const d = await callTool("get_tokens_overview", { range: Range });
     LastD = d; render(LastD);
   }
   catch (e) { showErr(e); }
   finally { refreshing = false; }
+}
+
+// 自适应轮询：会话近 90 秒内有完成请求按活跃 30s，否则空闲 180s（服务端有明细缓存，命中时只查指纹）
+// 90s 与服务端"空闲速度归零"阈值同口径，改一处必须同步另一处
+const IDLE_MS = 90000, FAST_MS = 30000, SLOW_MS = 180000;
+let timer = 0;
+function schedule() {
+  clearTimeout(timer);
+  const active = (LastD?.sess?.lastDone ?? 0) > Date.now() - IDLE_MS;
+  timer = setTimeout(async () => { await refresh(); schedule(); }, active ? FAST_MS : SLOW_MS);
 }
 
 (async () => {
@@ -341,13 +421,13 @@ async function refresh() {
     applyHostContext(init?.hostContext ?? {});
     notify("ui/notifications/initialized", {});
     await refresh();
-    setInterval(refresh, 3000);
+    schedule();
   } catch (e) {
     e.host = true;   // 初始化失败 = 连接类错误：不重试（zcode-context 同款处理）
     showErr(e);
   }
 })();
-document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+document.addEventListener("visibilitychange", async () => { if (!document.hidden) { await refresh(); schedule(); } });
 </script>
 </body>
 </html>
