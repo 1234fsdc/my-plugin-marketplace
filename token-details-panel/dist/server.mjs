@@ -147,8 +147,8 @@ const effTok = (r, est) => { const t = rowTok(r); return t > 0 ? t : (est[r.id] 
 
 // ---- 概览（对照 RefreshDetail） ----
 // 作用域 = 本工作区：当前会话所属 project_id（库中 workspace_id 全为空，用 project_id 兜底）；
-// 无会话绑定时退回全库口径。range: today | 7d | 30d | all
-const RANGES = { today: ["今日", 0], "7d": ["近 7 天", 6], "30d": ["近 30 天", 29], all: ["全部", null] };
+// 无会话绑定时退回全库口径。range: today | all（本工作区）；sessRange: today | all（本会话明细，见 sessStats）
+const RANGES = { today: ["今日", 0], all: ["全部", null] };
 const dayKey = (ms) => { const d = new Date(ms), p = (x) => String(x).padStart(2, "0"); return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`; };
 function overview(sid, range) {
   const h = db();
@@ -307,38 +307,28 @@ function overview(sid, range) {
     const key = dayKey(day0w + i * 86400000);
     days.push({ label: key.slice(5), tok: sums.get(key) ?? 0, cost: costs.get(key) ?? 0 });
   }
-  // 活动热力图：近 8 周每日 token（固定窗口，不随 range 变化）
-  const hd = h.prepare(
-    `SELECT strftime('%Y-%m-%d', completed_at/1000, 'unixepoch', 'localtime') d,
-      CAST(SUM(input_tokens+output_tokens) AS INT) tok
-     FROM model_usage WHERE status='completed' AND completed_at>=?${WS0} GROUP BY 1`).all(d0 - 55 * 86400000, ...wp);
-  const hm = new Map(hd.map((r) => [r.d, num(r.tok)]));
-  const heat = [];
-  for (let i = 55; i >= 0; i--) {
-    const key = dayKey(d0 - i * 86400000);
-    heat.push({ d: key.slice(5), tok: hm.get(key) ?? 0 });
-  }
-  return { sum, sessions, dmodels, byModel, bySession, compact, days, heat, tools, sessN, compactN,
+  return { sum, sessions, dmodels, byModel, bySession, compact, days, tools, sessN, compactN,
     scope: proj ? "workspace" : "all", range: rangeKey, rangeLabel };
 }
 
 // ---- 会话明细缓存：part/message 聚合与按模型统计只在数据变化时重算（指纹见 sessStats） ----
 // 多会话并行（多个面板）时按指纹各留一份，最多 4 份
 let DetailCache = new Map();
-function buildDetail(h, sids, ctxTok) {
+// t0 = 起始时间戳（today 时为当天 0 点，all 时为 0 = 不过滤）；compose 是实时口径不过滤
+function buildDetail(h, sids, ctxTok, t0) {
   const inSid = sids.map(() => "?").join(",");
   // 按模型（含最近一次速度）：单次扫描 + 窗口函数取每组最新，替代逐组相关子查询（实测 597ms → 56ms）
   const byModelRows = h.prepare(
     `WITH agg AS (
        SELECT model_id m, COUNT(*) cnt, COALESCE(SUM(input_tokens+output_tokens),0) tok,
          COALESCE(SUM(input_tokens),0) i, COALESCE(SUM(output_tokens),0) o
-       FROM model_usage WHERE session_id IN (${inSid}) AND query_source!='compact' GROUP BY model_id),
+       FROM model_usage WHERE session_id IN (${inSid}) AND query_source!='compact' AND COALESCE(completed_at,started_at)>=? GROUP BY model_id),
      last AS (
        SELECT model_id m, CAST((output_tokens+reasoning_tokens)*1000.0/duration_ms AS INT) tps,
          ROW_NUMBER() OVER (PARTITION BY model_id ORDER BY COALESCE(completed_at,started_at) DESC) rn
        FROM model_usage WHERE session_id IN (${inSid}) AND status='completed' AND query_source='main_turn'
-         AND duration_ms>0 AND (output_tokens+reasoning_tokens)>0)
-     SELECT a.*, l.tps last_tps FROM agg a LEFT JOIN last l ON l.m=a.m AND l.rn=1 ORDER BY a.tok DESC`).all(...sids, ...sids);
+         AND COALESCE(completed_at,started_at)>=? AND duration_ms>0 AND (output_tokens+reasoning_tokens)>0)
+     SELECT a.*, l.tps last_tps FROM agg a LEFT JOIN last l ON l.m=a.m AND l.rn=1 ORDER BY a.tok DESC`).all(...sids, t0, ...sids, t0);
   const byModel = byModelRows
     .map((r) => ({ model: r.m ?? "-", cnt: num(r.cnt), tok: num(r.tok), lastTps: r.last_tps == null ? null : num(r.last_tps), cost: costOf(r.m, r.i, r.o) }));
   const cost = byModelRows.reduce((a, r) => a + costOf(r.m, r.i, r.o), 0);   // 会话成本（含分支继承，仅计有官方价的模型）
@@ -368,8 +358,8 @@ function buildDetail(h, sids, ctxTok) {
   // 逐请求上下文趋势（每根柱 = 一次完成请求；压缩请求单独标记）
   const trend = h.prepare(
     `SELECT input_tokens i, output_tokens o, query_source q, COALESCE(completed_at,started_at) t
-     FROM model_usage WHERE session_id IN (${inSid}) AND status='completed'
-     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 40`).all(...sids).reverse()
+     FROM model_usage WHERE session_id IN (${inSid}) AND status='completed' AND COALESCE(completed_at,started_at)>=?
+     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 40`).all(...sids, t0).reverse()
     .map((r) => ({ i: num(r.i), o: num(r.o), c: r.q === "compact" ? 1 : 0, t: num(r.t) }));
   // 工具明细：命令执行 / 文件活动 / 技能加载（一次查询在 JS 聚合）
   const toolRows = h.prepare(
@@ -378,7 +368,7 @@ function buildDetail(h, sids, ctxTok) {
       json_extract(p.data,'$.state.input.file_path') fp,
       json_extract(p.data,'$.state.input.skill') sk,
       p.time_created tc
-     FROM part p WHERE p.session_id IN (${inSid}) AND json_extract(p.data,'$.type')='tool'`).all(...sids);
+     FROM part p WHERE p.session_id IN (${inSid}) AND json_extract(p.data,'$.type')='tool' AND p.time_updated>=?`).all(...sids, t0);
   const NOISE = new Set(["cd", "echo", "export", "set", "source", ".", "true", ":", "sleep"]);
   const progOf = (cmd) => {
     // 取第一个"真正的程序"所在段：跳过 cd/echo 等壳命令段，段内跳过前置 VAR=x 赋值
@@ -417,11 +407,15 @@ function buildDetail(h, sids, ctxTok) {
 }
 
 // ---- 当前会话统计（宿主在 tools/call 的 _meta 注入会话 ID，对照 zcode-context readSessionContext） ----
-function sessStats(sid) {
+function sessStats(sid, range) {
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sid)) return null;
   const h = db();
   const meta = h.prepare(`SELECT title, time_created, time_updated, parent_id FROM session WHERE id=?`).get(sid);
   if (!meta) return null;
+  // 本会话时间范围：today = 今天 0 点起（Token/成本/请求/工具/按模型/明细/子代理跟随过滤）；
+  // 上下文占用/速度/缓存命中/上下文组成是实时口径，不随范围变。缺省/非法值回退 today（与 overview 同向）
+  const rangeKey = range === "all" ? "all" : "today";
+  const t0 = rangeKey === "today" ? day0() : 0;
   // 分支继承：fork 会话合并直系父会话用量（总量/按模型/工具轮数）；速度与上下文只看本会话
   const pid = (typeof meta.parent_id === "string" && meta.parent_id) ? meta.parent_id : null;
   const sids = pid ? [sid, pid] : [sid];
@@ -441,6 +435,17 @@ function sessStats(sid) {
       MIN(CASE WHEN query_source!='compact' THEN started_at END) first_req,
       MAX(COALESCE(completed_at,started_at)) last_done
      FROM model_usage WHERE session_id IN (${inSid})`).get(...sids);
+  // 范围内聚合（today 按天过滤；t0=0 谓词恒真 = 全量）：本会话 Token/工具调用等范围卡用；
+  // 缓存命中保持全量口径（t.inp/t.cr），请求数另出 nAll
+  const tr = h.prepare(
+    `SELECT COUNT(CASE WHEN query_source!='compact' THEN 1 END) n,
+      COALESCE(SUM(CASE WHEN query_source!='compact' THEN output_tokens END),0) out_p,
+      COALESCE(SUM(CASE WHEN query_source!='compact' THEN input_tokens END),0) inp,
+      SUM(CASE WHEN status='error' THEN 1 END) errs,
+      SUM(CASE WHEN status='cancelled' THEN 1 END) cancels,
+      SUM(CASE WHEN query_source='compact' THEN 1 END) compacts,
+      SUM(retry_count) retries
+     FROM model_usage WHERE session_id IN (${inSid}) AND COALESCE(completed_at,started_at)>=?`).get(...sids, t0);
   // 上下文占用 = 最近一次完成请求的 input_tokens（OpenAI 口径已含 cache_read，勿再加 cr/cw 重复计）
   const ctxRow = h.prepare(
     `SELECT input_tokens i, cache_read_input_tokens cr,
@@ -480,42 +485,44 @@ function sessStats(sid) {
   }
   const tu = h.prepare(
     `SELECT COUNT(*) turns, COALESCE(SUM(tool_call_count),0) tools, COALESCE(SUM(tool_error_count),0) tool_errs
-     FROM turn_usage WHERE session_id IN (${inSid})`).get(...sids);
+     FROM turn_usage WHERE session_id IN (${inSid}) AND completed_at>=?`).get(...sids, t0);
   const sub = h.prepare(
     `SELECT COUNT(DISTINCT s.id) n, COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok
-     FROM session s LEFT JOIN model_usage u ON u.session_id=s.id WHERE s.parent_id=?`).get(sid);
+     FROM session s LEFT JOIN model_usage u ON u.session_id=s.id
+     WHERE s.parent_id=? AND COALESCE(u.completed_at,u.started_at)>=?`).get(sid, t0);
   const subList = h.prepare(
     `SELECT COALESCE(NULLIF(s.title,''), s.id) title, COUNT(u.id) cnt,
       COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok
      FROM session s LEFT JOIN model_usage u ON u.session_id=s.id
-     WHERE s.parent_id=? GROUP BY s.id HAVING cnt>0 OR tok>0 ORDER BY tok DESC LIMIT 20`).all(sid)
+     WHERE s.parent_id=? AND COALESCE(u.completed_at,u.started_at)>=? GROUP BY s.id HAVING cnt>0 OR tok>0 ORDER BY tok DESC LIMIT 20`).all(sid, t0)
     .map((r) => ({ title: r.title, cnt: num(r.cnt), tok: num(r.tok) }));
   // 明细缓存：用量完成/开始时间或 part/message 写入有变化才重算（空闲轮询只剩指纹查询）
   // part/message 的 COUNT 一并入指纹：回滚删行不会抬高 MAX(time_updated)，靠行数变化发现
   const ctxTok = ctxRow ? num(ctxRow.i) : 0;
   const pfp = h.prepare(`SELECT COUNT(*) c, MAX(time_updated) m FROM part WHERE session_id IN (${inSid})`).get(...sids);
   const mfp = h.prepare(`SELECT COUNT(*) c, MAX(time_updated) m FROM message WHERE session_id IN (${inSid})`).get(...sids);
-  const dkey = `${sid}|${pid ?? ""}|${num(t.last_done)}|${ctxTok}|${num(pfp?.c)}:${num(pfp?.m)}|${num(mfp?.c)}:${num(mfp?.m)}`;
+  const dkey = `${sid}|${pid ?? ""}|${num(t.last_done)}|${ctxTok}|${t0}|${num(pfp?.c)}:${num(pfp?.m)}|${num(mfp?.c)}:${num(mfp?.m)}`;
   if (!DetailCache.has(dkey)) {
     if (DetailCache.size >= 4) DetailCache.delete(DetailCache.keys().next().value);
-    DetailCache.set(dkey, buildDetail(h, sids, ctxTok));
+    DetailCache.set(dkey, buildDetail(h, sids, ctxTok, t0));
   }
   const { byModel, cost: sessCost, compose, trend, cmds, files, skills } = DetailCache.get(dkey);
   const durMs = Math.max(0, num(t.last_done) - num(meta.time_created));
   // 本会话真实 token 总量：input + output（含思考，output 已是 output_tokens 含 reasoning 的口径，见 out_p 交叉验证）
-  const usedTok = num(t.inp) + num(t.out_p);
+  const usedTok = num(tr.inp) + num(tr.out_p);
   return {
     title: meta.title ?? sid,
     bound: true,
+    range: rangeKey,
     ctx: ctxTok,
     total: ModelWin[ctxRow?.model] ?? null,
     model: ctxRow?.model ?? "-",
-    n: num(t.n), outR: num(t.out_r), usedTok, cost: sessCost,
+    n: num(tr.n), nAll: num(t.n), outR: num(t.out_r), usedTok, cost: sessCost,
     cacheHit: num(t.inp) > 0 ? num(t.cr) / num(t.inp) : null,
     ttft: t.ttft == null ? null : num(t.ttft) / 1000,
     tps: tps8, tpsModel: md?.model_id ?? null,
     turns: num(tu.turns), tools: num(tu.tools), toolErrs: num(tu.tool_errs),
-    errs: num(t.errs), cancels: num(t.cancels), compacts: num(t.compacts), retries: num(t.retries),
+    errs: num(tr.errs), cancels: num(tr.cancels), compacts: num(tr.compacts), retries: num(tr.retries),
     durMs, firstReq: num(t.first_req), lastDone: num(t.last_done),
     sub: { n: num(sub.n), tok: num(sub.tok), list: subList },
     compose, trend, cmds, files, skills,
@@ -526,8 +533,11 @@ function sessStats(sid) {
 // ---- 极简 MCP stdio server：initialize / tools/list / tools/call / resources/read ----
 const TOOL = {
   name: "get_tokens_overview",
-  description: "App-only read-only Token usage stats: today summary, per-model speed, active sessions (30min), by-model/session today, compaction (30d), 7-day trend.",
-  inputSchema: { type: "object", properties: { range: { type: "string", enum: ["today", "7d", "30d", "all"], description: "本工作区统计时间范围，默认 today" } } },
+  description: "App-only read-only Token usage stats: today/all summary, per-model speed, active sessions (30min), by-model/session, compaction (30d), 7-day trend.",
+  inputSchema: { type: "object", properties: {
+    range: { type: "string", enum: ["today", "all"], description: "本工作区统计时间范围，默认 today" },
+    sessRange: { type: "string", enum: ["today", "all"], description: "本会话明细时间范围，默认 today" },
+  } },
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   _meta: { ui: { visibility: ["app"] } },
 };
@@ -547,7 +557,7 @@ function handle(msg) {
     // 会话绑定：宿主注入 _meta["com.zcode/request-context"].session_id（对照 zcode-context）
     const sid = params?._meta?.["com.zcode/request-context"]?.session_id;
     if (!SessLogged) { SessLogged = true; log("session binding:", sid ? `ok ${sid}` : `absent (meta keys: ${params?._meta ? Object.keys(params._meta).join(",") : "none"})`); }
-    return { content: [], structuredContent: { ...overview(sid, params?.arguments?.range), sess: sid ? sessStats(sid) : null } };
+    return { content: [], structuredContent: { ...overview(sid, params?.arguments?.range), sess: sid ? sessStats(sid, params?.arguments?.sessRange) : null } };
   }
   if (method === "resources/list") {
     return { resources: [{ uri: HtmlUri, name: "Token 统计面板", mimeType: "text/html;profile=mcp-app" }] };

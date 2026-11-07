@@ -5,18 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Token 统计</title>
 <style>
-  /* ZCode 宿主语言：CSS 变量 + 亮暗双主题（fallback 与宿主一致）。磁贴网格，平实填充，无渐变无阴影。 */
-  :root{color-scheme:light;--bg:var(--color-background-primary,#fff);--bg2:var(--color-background-secondary,#f4f5f7);--fg:var(--color-text-primary,#1d2129);
-    --muted:var(--color-text-secondary,#6b7280);--faint:#9aa1ab;--border:var(--color-border-primary,#e2e5ea);--soft:var(--color-border-secondary,#eef0f3);
-    --accent:var(--color-text-info,#2f7fe0);--accent-bg:var(--color-background-info,#eaf3fe);
-    --up:#15803d;--up-bg:#e3f5e8;--down:#c2410c;--down-bg:#fdede3;--warn:#a16207;--warn-bg:#fdf3d8;--err:#dc2626;
+  /* dsh-context 设计语言：灰底白卡片 + 分组 KPI + 点状图例 + 环形图；分类色固定（对齐 dsh categories.ts），表面/文字用宿主变量跟亮暗 */
+  :root{color-scheme:light;--bg:var(--color-background-primary,#fff);--bg2:var(--color-background-secondary,#f4f5f7);
+    --fg:var(--color-text-primary,#1d2129);--muted:var(--color-text-secondary,#6b7280);--faint:#9aa1ab;
+    --border:var(--color-border-primary,#e2e5ea);--soft:var(--color-border-secondary,#eef0f3);
+    --accent:var(--color-text-info,#2f7fe0);--up:#15803d;--warn:#a16207;--down:#c2410c;--err:#dc2626;
+    --c-user:#22c55e;--c-assist:#3b82f6;--c-reason:#8b5cf6;--c-tool:#14b8a6;--c-file:#f59e0b;--c-compact:#94a3b8;
     --sans:var(--font-sans,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif)}
-  :root[data-theme=dark]{color-scheme:dark;--bg:var(--color-background-primary,#17181c);--bg2:var(--color-background-secondary,#212329);--fg:var(--color-text-primary,#e6e8ec);
-    --muted:var(--color-text-secondary,#9aa1ab);--faint:#6b7280;--border:var(--color-border-primary,#30333a);--soft:var(--color-border-secondary,#272a30);
-    --accent:var(--color-text-info,#7cb6ff);--accent-bg:var(--color-background-info,#14283f);
-    --up:#4ade80;--up-bg:#173022;--down:#fb923c;--down-bg:#3a2417;--warn:#fbbf24;--warn-bg:#352a10;--err:#f87171}
+  :root[data-theme=dark]{color-scheme:dark;--bg:var(--color-background-primary,#17181c);--bg2:var(--color-background-secondary,#212329);
+    --fg:var(--color-text-primary,#e6e8ec);--muted:var(--color-text-secondary,#9aa1ab);--faint:#6b7280;
+    --border:var(--color-border-primary,#30333a);--soft:var(--color-border-secondary,#272a30);
+    --accent:var(--color-text-info,#7cb6ff);--up:#4ade80;--warn:#fbbf24;--down:#fb923c;--err:#f87171}
   *{box-sizing:border-box;min-width:0}
-  html,body{margin:0;background:var(--bg);color:var(--fg)}
+  html,body{margin:0;background:var(--bg2);color:var(--fg)}
   body{font:13px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
   main{padding:10px 12px 16px;display:flex;flex-direction:column;gap:8px;max-width:720px;margin:0 auto}
   .muted{color:var(--muted)}.small{font-size:11px}
@@ -27,74 +28,97 @@
   .head-meta .num{overflow:hidden;text-overflow:ellipsis}
   .live{display:inline-flex;align-items:center;gap:5px;color:var(--up);font-weight:600;flex:none}
   .live-dot{width:6px;height:6px;border-radius:50%;background:var(--up)}
-  /* 双标签：宿主胶囊分段控件 */
-  .tabs{display:flex;gap:2px;background:var(--bg2);border-radius:8px;padding:2px}
+  /* 标签页 & 范围切换：dsh 分段控件（lc-gran），选中 = 黑胶囊 */
+  .tabs{display:flex;gap:2px;background:var(--soft);border:1px solid var(--border);border-radius:7px;padding:2px}
   .tabs button{flex:1;border:0;background:transparent;color:var(--muted);font:600 12px/1 var(--sans);
-    padding:7px 0;border-radius:6px;cursor:pointer;white-space:nowrap}
-  .tabs button.on{background:var(--accent);color:#fff}
-  /* 磁贴网格：本会话 + 本工作区共用 */
-  .tiles{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-  .t3{grid-template-columns:repeat(3,minmax(0,1fr))}
-  .tile{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:1px}
-  .tile .l{font-size:11px;font-weight:600;color:var(--muted)}
-  .tile .v{font-size:20px;font-weight:750;letter-spacing:-.01em;line-height:1.3;font-variant-numeric:tabular-nums;white-space:nowrap}
-  .tile .v small{font-size:11px;font-weight:550;color:var(--muted)}
-  .tile .s{font-size:10.5px;color:var(--faint)}
-  .w2{grid-column:span 2}
-  .w3{grid-column:span 3}
-  /* 上下文主磁贴：宿主 info 色平实填充，占用超阈值时切换暖色底 */
-  .ctx-t{background:var(--accent-bg);border-color:transparent;color:var(--accent)}
-  .ctx-t .l,.ctx-t .s{color:var(--accent)}
-  .ctx-t .v{font-size:26px;font-weight:800;color:var(--accent)}
-  .ctx-t .v small{color:var(--accent);opacity:.75}
-  .ctx-t.warn{background:var(--warn-bg);color:var(--warn)}.ctx-t.warn .l,.ctx-t.warn .s,.ctx-t.warn .v,.ctx-t.warn .v small{color:var(--warn)}
-  .ctx-t.over{background:var(--down-bg);color:var(--down)}.ctx-t.over .l,.ctx-t.over .s,.ctx-t.over .v,.ctx-t.over .v small{color:var(--down)}
-  .track{height:6px;border-radius:3px;background:light-dark(#ffffffb0,#ffffff26);overflow:hidden;margin:6px 0 3px}
-  .track i{display:block;height:100%;border-radius:3px;background:currentColor}
-  /* 速度徽章：80/50 t/s 分档 */
-  .badge{display:inline-flex;align-items:center;height:18px;padding:0 6px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
-  .badge.up{background:var(--up-bg);color:var(--up)}.badge.down{background:var(--down-bg);color:var(--down)}
-  .badge.flat{background:var(--bg2);color:var(--muted);font-weight:500}.badge.warn{background:var(--warn-bg);color:var(--warn)}
-  /* 列表行：行间细分隔线（宿主列表式样） */
-  .lrow{display:flex;align-items:baseline;gap:8px;padding:5px 0;font-size:12.5px}
-  .lrow+.lrow{border-top:1px solid var(--soft)}
-  .lrow .n{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .lrow .x{display:flex;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap}
-  .lrow .x .num{font-size:12px}
-  .lbar{height:4px;border-radius:2px;background:var(--soft);overflow:hidden;margin:1px 0 4px}
-  .lbar i{display:block;height:100%;background:var(--accent);border-radius:2px}
-  .lbar i.up{background:var(--up)}.lbar i.warn{background:var(--warn)}.lbar i.down{background:var(--down)}
+    padding:7px 0;border-radius:5px;cursor:pointer;white-space:nowrap}
+  .tabs button.on{background:var(--fg);color:var(--bg2)}
+  .card{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-bottom:9px;box-shadow:0 1px 2px rgb(0 0 0 / .04)}
+  .ct{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding-bottom:7px;margin-bottom:8px;border-bottom:1px solid var(--soft)}
+  .ct-s{margin-left:auto;font-weight:400;font-size:11.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .seg{display:flex;gap:2px;background:var(--soft);border:1px solid var(--border);border-radius:6px;padding:1px;margin-left:auto;flex:none}
+  .seg button{border:0;background:transparent;color:var(--muted);font:500 11px/1 var(--sans);padding:4px 10px;border-radius:5px;cursor:pointer;white-space:nowrap}
+  .seg button.on{background:var(--fg);color:var(--bg2)}
+  /* KPI 组（lc-stat） */
+  .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:2px}
+  .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 4px;display:flex;flex-direction:column;gap:2px;min-width:0}
+  .kl{color:var(--muted);font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kv2{font-size:16px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ks{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  /* 大数字行（lc-overview-num） */
+  .bignum{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .bignum b{font-size:22px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .bignum>span{color:var(--muted);font-size:11px}
+  .bigpct{margin-left:auto;display:flex;align-items:baseline;gap:4px}
+  .bigpct b{font-size:20px;font-variant-numeric:tabular-nums}
+  .bigpct span{font-size:10.5px}
+  .bigpct.warn b{color:var(--warn)}.bigpct.over b{color:var(--down)}
+  /* 堆叠分段条 + 斜纹剩余（当前上下文） */
+  .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--soft);margin:2px 0 10px}
+  .stack i{display:block;height:100%}
+  .stack .rest{flex:1;background:repeating-linear-gradient(45deg,transparent 0 4px,var(--soft) 4px 7px)}
+  /* 点状图例（lc-sl） */
+  .sl{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px 8px;width:100%}
+  .slr{display:flex;flex-direction:column;gap:1px;font-size:12px;min-width:0}
+  .slm{display:flex;align-items:center;gap:6px;min-width:0}
+  .dot{flex:none;width:8px;height:8px;border-radius:2px;display:inline-block}
+  .sll{flex:1;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slp{flex:none;min-width:30px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
+  .sls{margin-left:14px;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* 键值明细行 + chips */
+  .kv{display:flex;align-items:baseline;gap:8px;padding:5px 0 2px;font-size:12px}
+  .kv+.kv,.kv~.kvs+.kv{border-top:1px solid var(--soft)}
+  .kvl{font-weight:600;flex:none}
+  .kvr{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
+  .kvs{color:var(--muted);font-size:10.5px;margin:0 0 6px}
+  .chips{display:flex;flex-wrap:wrap;gap:4px 12px;padding-top:7px;border-top:1px solid var(--soft);font-size:11.5px;color:var(--muted)}
+  .chip.err{color:var(--down);font-weight:600}
+  /* 环形图 */
+  .dwrap{display:flex;flex-direction:column;align-items:center;gap:10px}
+  .donut{position:relative;flex:none}
+  .donut svg{display:block}
+  .dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;text-align:center;pointer-events:none}
+  .dc b{font-size:15px;line-height:1.15;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
+  .dc span{color:var(--muted);font-size:10px}
+  /* 逐请求趋势柱图 */
+  .trend{display:flex;align-items:flex-end;gap:2px;height:64px;margin-top:4px}
+  .trend .b{flex:1;min-width:2px;height:100%;display:flex;flex-direction:column;justify-content:flex-end}
+  .trend .b u{display:block;background:var(--c-assist);opacity:.45}
+  .trend .b i{display:block;background:var(--c-assist)}
+  .trend .b.c u,.trend .b.c i{background:var(--c-file);opacity:.9}
+  .axis{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-top:5px;font-variant-numeric:tabular-nums}
+  /* 列表行（点 + 名 + 右值） */
+  .lr{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px}
+  .lr+.lr{border-top:1px solid var(--soft)}
+  .lrm{display:flex;align-items:center;gap:7px;min-width:0;flex:1}
+  .lrn{flex:1;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .lrx{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+  .badge{display:inline-flex;align-items:center;height:17px;padding:0 6px;border-radius:5px;font-size:11px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;flex:none}
+  .badge.up{background:color-mix(in srgb,var(--up) 14%,transparent);color:var(--up)}
+  .badge.warn{background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--warn)}
+  .badge.down{background:color-mix(in srgb,var(--down) 14%,transparent);color:var(--down)}
   .more{display:block;width:100%;margin-top:4px;padding:5px 0;border:0;border-top:1px solid var(--soft);
     background:transparent;color:var(--accent);font:600 11.5px var(--sans);cursor:pointer;text-align:center}
   .more:hover{background:var(--bg2)}
   .note{margin:0;padding:6px 9px;border-radius:7px;background:var(--bg2);color:var(--muted);font-size:11.5px}
-  .notice{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 10px;border-radius:9px;font-size:12px;background:var(--down-bg);color:var(--down)}
+  .notice{display:flex;align-items:center;gap:8px;padding:6px 6px 6px 10px;border-radius:9px;font-size:12px;background:var(--bg2);color:var(--down)}
   .retry-btn{flex:none;border:1px solid var(--down);background:transparent;color:var(--down);
     font:600 11px/1 var(--sans);padding:4px 10px;border-radius:6px;cursor:pointer}
   .retry-btn:hover{background:var(--down);color:var(--bg)}
-  /* 近 7 日：横向条形（对照 zcode-context day-bar 图式） */
-  .day{display:grid;grid-template-columns:52px 1fr auto;align-items:center;gap:8px;font-size:12px;padding:3px 0}
+  /* 近 7 日双柱（dsh usage 配色：tokens 蓝 / cost 绿） */
+  .days{display:flex;flex-direction:column;gap:3px}
+  .day{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;font-size:12px}
+  .day-bars{display:flex;flex-direction:column;gap:2px}
   .day-bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
-  .day-bar i{display:block;height:100%;background:var(--accent);border-radius:3px}
-  .day-bar.cost{margin-top:2px}.day-bar.cost i{background:var(--up)}
-  .day .num{color:var(--muted);font-size:11px}
-  /* 上下文组成：堆叠条 + 图例 */
-  .comp{display:flex;height:12px;border-radius:6px;overflow:hidden;margin:7px 0;background:var(--soft)}
-  .comp i{display:block;height:100%}
-  .legend{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11px;color:var(--muted)}
-  .legend b{display:inline-block;width:7px;height:7px;border-radius:2px;margin-right:4px}
-  /* 逐请求趋势：每根柱 = 一次请求（输入在下、输出在上） */
-  .trend{display:flex;align-items:flex-end;gap:2px;height:54px;margin-top:8px}
-  .trend .b{flex:1;min-width:2px;height:100%;display:flex;flex-direction:column;justify-content:flex-end}
-  .trend .b u{display:block;background:var(--up);opacity:.55}
-  .trend .b i{display:block;background:var(--accent)}
-  .trend .b.c i,.trend .b.c u{background:var(--down);opacity:.9}
-  /* 活动热力图：7 行 × 8 列（按列排周） */
-  .heat{display:grid;grid-template-rows:repeat(7,1fr);grid-auto-flow:column;grid-auto-columns:1fr;gap:3px;height:112px;margin:8px 0 4px}
-  .heat i{display:block;border-radius:2px;background:var(--soft)}
-  /* 时间范围切换 */
-  .ranges{margin-bottom:8px}
-  .ranges button{padding:5px 0;font-size:11.5px}
+  .day-bar i{display:block;height:100%;border-radius:3px}
+  .day-bar.tok i{background:color-mix(in srgb,var(--c-assist) 72%,transparent)}
+  .day-bar.cost i{background:color-mix(in srgb,var(--c-user) 72%,transparent)}
+  .day .num{color:var(--muted);font-size:10.5px}
+  .dkey{display:flex;justify-content:flex-end;gap:12px;font-size:10px;color:var(--muted);margin-bottom:6px}
+  .dkey .sw{display:inline-block;width:10px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+  .dkey .sw.tok{background:color-mix(in srgb,var(--c-assist) 72%,transparent)}
+  .dkey .sw.cost{background:color-mix(in srgb,var(--c-user) 72%,transparent)}
+  .fnote{color:var(--faint);font-size:10px;margin-top:6px}
 </style>
 </head>
 <body>
@@ -192,185 +216,184 @@ const FmtDur = (ms) => {
 };
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// 磁贴辅助：label / value / sub 三段；w2=跨两列
-const tile = (l, v, s, cls = "") => `<div class="tile ${cls}"><span class="l">${l}</span><span class="v">${v}</span><span class="s">${s}</span></div>`;
-
-// 列表磁贴：默认只显示前 CAP 条，点「显示全部」展开（Expand 集合跨 3s 重绘保持展开态）
+// ---- dsh-context 设计语言组件：卡片 / KPI / 点状图例 / 环形图 ----
 const CAP = 5;
 const Expand = new Set();
-function listTile(key, label, items, rowFn, empty = "暂无数据") {
-  if (!items.length) return `<div class="tile w2"><span class="l">${label}</span><div class="note">${empty}</div></div>`;
-  const open = Expand.has(key);
-  const shown = open ? items : items.slice(0, CAP);
-  let html = `<div class="tile w2"><span class="l" style="margin-bottom:2px">${label}</span>`;
-  html += shown.map(rowFn).join("");
-  if (items.length > CAP) {
-    html += open
-      ? `<button class="more" type="button" data-key="${key}">收起</button>`
-      : `<button class="more" type="button" data-key="${key}">显示全部 ${items.length} 条</button>`;
-  }
-  return html + `</div>`;
+const card = (t, body, sub = "", ctl = "") =>
+  `<section class="card"><div class="ct"><span>${t}</span>${sub ? `<span class="ct-s">${sub}</span>` : ""}${ctl}</div>${body}</section>`;
+const kpi = (l, v, s = "") => `<div class="kpi"><span class="kl">${l}</span><span class="kv2">${v}</span>${s ? `<span class="ks">${s}</span>` : ""}</div>`;
+// 分类色固定（对齐 dsh categories.ts：用户绿/助手蓝/推理紫/工具青/文件橙/压缩灰）
+const CAT = { user: "用户消息", assistant: "助手回复", reasoning: "推理", tool: "工具结果", file: "文件", compact: "压缩摘要" };
+const CCOL = { user: "var(--c-user)", assistant: "var(--c-assist)", reasoning: "var(--c-reason)", tool: "var(--c-tool)", file: "var(--c-file)", compact: "var(--c-compact)" };
+// 通用系列色（环形图/列表行），取 dsh tailwind 调色板
+const SERIES = ["#3b82f6", "#14b8a6", "#22c55e", "#f59e0b", "#a855f7", "#ec4899", "#6366f1", "#f97316", "#eab308", "#06b6d4", "#84cc16", "#f43f5e"];
+const sCol = (i) => SERIES[i % SERIES.length];
+// 按模型环形图卡片（本会话/本工作区共用）：环形 + 点状图例（次数/token/可选速度/成本）
+function modelShare(bm, center) {
+  const tot = bm.reduce((a, x) => a + x.tok, 0) || 1;
+  return `<div class="dwrap">${donut(bm.map((m, i) => ({ v: m.tok, c: sCol(i) })), center, "Total")}
+    <div class="sl">${bm.map((m, i) => slRow(sCol(i), esc(m.model), (m.pct ?? Math.round(m.tok * 100 / tot)) + "%",
+      `${m.cnt} 次 · ${Kcn(m.tok)} tok${m.lastTps != null ? ` · ${m.lastTps} t/s` : ""}${m.cost != null ? ` · ${FmtCost(m.cost)}` : ""}`)).join("")}</div></div>`;
+}
+const dot = (c) => `<i class="dot" style="background:${c}"></i>`;
+const segCtl = (items, attr, cur) => `<div class="seg" role="tablist">${items
+  .map(([k, l]) => `<button ${attr}="${k}" class="${cur === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+const slRow = (c, label, pct, sub = "") =>
+  `<div class="slr"><div class="slm">${dot(c)}<span class="sll">${label}</span><span class="slp">${pct}</span></div>${sub ? `<div class="sls">${sub}</div>` : ""}</div>`;
+const row = (c, name, xs) => `<div class="lr"><div class="lrm">${c ? dot(c) : ""}<span class="lrn">${name}</span></div><span class="lrx">${xs}</span></div>`;
+// 环形图：SVG 圆环 stroke-dasharray 分段，中性轨道，中心合计
+function donut(segs, center, label) {
+  const tot = segs.reduce((a, x) => a + x.v, 0) || 1;
+  const C = 2 * Math.PI * 44;
+  let off = 0;
+  const arcs = segs.filter((x) => x.v > 0).map((x) => {
+    const len = x.v * C / tot;
+    const el = `<circle r="44" cx="55" cy="55" fill="none" stroke="${x.c}" stroke-width="13" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 55 55)"/>`;
+    off += len;
+    return el;
+  }).join("");
+  return `<div class="donut"><svg viewBox="0 0 110 110" width="104" height="104"><circle r="44" cx="55" cy="55" fill="none" stroke="var(--soft)" stroke-width="13"/>${arcs}</svg><div class="dc"><b>${center}</b><span>${label}</span></div></div>`;
+}
+// 列表卡片：默认只显示前 CAP 条，点「显示全部」展开（Expand 集合跨 3s 重绘保持展开态）
+function listCard(key, title, items, rowFn, empty = "暂无数据") {
+  if (!items.length) return card(title, `<div class="note">${empty}</div>`);
+  const shown = (Expand.has(key) ? items : items.slice(0, CAP)).map(rowFn).join("");
+  let body = shown;
+  if (items.length > CAP) body += Expand.has(key)
+    ? `<button class="more" type="button" data-key="${key}">收起</button>`
+    : `<button class="more" type="button" data-key="${key}">显示全部 ${items.length} 条</button>`;
+  return card(title, body);
 }
 document.addEventListener("click", (ev) => {
   const r = ev.target.closest?.("[data-range]");
   if (r) { Range = r.dataset.range; refresh(); return; }
+  const sr = ev.target.closest?.("[data-srange]");
+  if (sr) { SessRange = sr.dataset.srange; refresh(); return; }
   const b = ev.target.closest?.(".more");
   if (!b) return;
   const k = b.dataset.key;
   if (Expand.has(k)) Expand.delete(k); else Expand.add(k);
   if (LastD) render(LastD);   // 立即重绘，不等下一轮轮询
 });
-let Range = "today";   // 本工作区时间范围：today | 7d | 30d | all
+let Range = "today";       // 本工作区时间范围：today | all
+let SessRange = "today";   // 本会话时间范围：today | all（明细跟随过滤，上下文/速度/缓存/组成为实时口径）
 
 function render(D) {
   document.getElementById("stamp").textContent = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
   document.getElementById("body").innerHTML = Tab === "sess" ? renderSess(D) : renderAll(D);
 }
 
-// ---- 本会话视图：磁贴网格 ----
+// ---- 本会话视图：dsh 卡片（当前上下文 / 上下文统计 / Token 统计 / 上下文趋势 / 明细列表） ----
 function renderSess(D) {
   const s = D.sess;
   if (!s) return `<div class="note">会话绑定不可用：宿主未提供会话 ID（可能面板在会话外打开）。可切到「本工作区」查看统计。</div>`;
   const K = (v) => v == null ? "-" : (v * 100).toFixed(0) + "%";
   // 上下文占用：真实口径（已用 = 最近请求 input_tokens；上限 = 宿主 modelConfigRules contextWindow）
   const pct = s.total > 0 ? Math.min(100, Math.round(s.ctx * 100 / s.total)) : null;
-  const cls = pct == null ? "" : pct >= 90 ? "over" : pct >= 70 ? "warn" : "";
-  const state = pct == null ? "" : pct >= 90 ? "接近上限" : pct >= 70 ? "偏高" : "健康";
-  const remain = s.total > 0 ? ` · 剩余约 ${Kcn(Math.max(0, s.total - s.ctx))}` : "";
-  const sub = pct != null ? `已用 ${pct}%${state ? " · " + state : ""}${remain}`
-                          : `上限未知（模型 ${esc(s.model)} 不在宿主配置内）`;
-  let html = `<div class="tiles">`;
-  html += `<div class="tile ctx-t w2 ${cls}"><span class="l">上下文占用</span>
-    <span class="v">${Kcn(s.ctx)}<small>${s.total > 0 ? " / " + Kcn(s.total) + " tokens" : " tokens"}</small></span>
-    <div class="track">${pct != null ? `<i style="width:${pct}%"></i>` : ""}</div>
-    <span class="s">${sub}</span></div>`;
-  html += tile("速度", `<span style="color:var(--accent)">${s.tps.toFixed(1)}<small> t/s</small></span>`,
-    s.tps > 0 ? `${esc((s.tpsModel ?? "").split("/").pop() ?? s.tpsModel)} · 近8轮` : `空闲 90s+`);
-  html += tile("缓存命中", `<span style="color:var(--up)">${K(s.cacheHit)}</span>`, `${s.n} 次请求`);
-  html += tile("本会话 Token", `<span style="color:var(--accent)">${Kcn(s.usedTok)}</span>`, `${s.n} 次请求 · ${s.turns} 轮${s.cost != null ? ` · 约 ${FmtCost(s.cost)}` : ""}`);
-  html += tile("工具调用", `${s.tools}`, `取消${s.cancels} · 重试${s.retries} · 压缩${s.compacts}`);
-  // 上下文组成（估算：part 正文/工具输入输出按字符数折算）
-  const CAT = { user: "用户消息", assistant: "助手回复", reasoning: "推理", tool: "工具结果", file: "文件", compact: "压缩摘要" };
-  const CCOL = { user: "var(--accent)", assistant: "var(--up)", reasoning: "var(--warn)", tool: "var(--down)", file: "var(--faint)", compact: "var(--muted)" };
-  const cTot = (s.compose ?? []).reduce((a, x) => a + x.tok, 0);
-  if (cTot > 0) {
-    html += `<div class="tile w2"><span class="l">上下文组成 · 估算（折算到当前窗口）</span>
-      <div class="comp">${s.compose.map((x) => `<i style="width:${(x.tok * 100 / cTot).toFixed(1)}%;background:${CCOL[x.cat] ?? "var(--faint)"}"></i>`).join("")}</div>
-      <div class="legend">${s.compose.map((x) => `<span><b style="background:${CCOL[x.cat] ?? "var(--faint)"}"></b>${CAT[x.cat] ?? esc(x.cat)} ${Kcn(x.tok)} · ${Math.round(x.tok * 100 / cTot)}%</span>`).join("")}</div></div>`;
-  }
-  // 逐请求趋势：每根柱一次完成请求，橙色 = 压缩请求
+  // 本会话时间范围切换（今日 / 全部），点击由 document 委托处理；旧 server 无 range 字段时数据是全量，按全部高亮
+  const srange = s.range ?? "all";
+  // 当前上下文：大数字 + 组成分段条（斜纹 = 剩余窗口）+ 点状图例（组成为实时口径估算）
+  const comp = (s.compose ?? []).filter((x) => x.tok > 0);
+  const cTot = comp.reduce((a, x) => a + x.tok, 0);
+  const denom = s.total > 0 ? s.total : cTot;   // 分段条按窗口归一：斜纹剩余 = 总窗口 - 已用
+  let html = card(`当前上下文`,
+    `<div class="bignum"><b>${Kcn(s.ctx)}</b><span>${s.total > 0 ? "/ " + Kcn(s.total) + " tokens" : "tokens"}</span>
+      <span class="bigpct ${pct == null ? "" : pct >= 90 ? "over" : pct >= 70 ? "warn" : ""}"><b>${pct == null ? "-" : pct + "%"}</b><span>已用上下文</span></span></div>
+     <div class="stack">${comp.map((x) => `<i style="width:${(x.tok * 100 / denom).toFixed(2)}%;background:${CCOL[x.cat] ?? "var(--c-compact)"}"></i>`).join("")}${denom > 0 ? `<i class="rest"></i>` : ""}</div>`
+    + (cTot > 0
+      ? `<div class="sl">${comp.map((x) => slRow(CCOL[x.cat] ?? "var(--c-compact)", CAT[x.cat] ?? esc(x.cat), Math.round(x.tok * 100 / cTot) + "%", `≈${Kcn(x.tok)}`)).join("")}</div>
+         <div class="fnote">组成 · 估算（part 内容按字符数折算到当前窗口）</div>`
+      : `<div class="note">暂无组成数据</div>`),
+    esc((s.model ?? "").split("/").pop() ?? s.model));
+  // 上下文统计：KPI 组 + 键值行 + 今日/全部切换（明细跟随，上下文/速度/缓存为实时口径）
+  html += card("上下文统计",
+    `<div class="kpis">${kpi("轮次", s.turns)}${kpi("请求", s.n)}${kpi("工具调用", s.tools)}${kpi("子代理", s.sub?.n ?? 0)}</div>
+     <div class="kv"><span class="kvl">Token${srange === "today" ? " · 今日" : ""}</span><span class="kvr">${Kcn(s.usedTok)}${s.cost != null ? ` · ${FmtCost(s.cost)}` : ""}</span></div>
+     <div class="kvs">${s.n} 次请求 · ${s.turns} 轮</div>
+     <div class="kv"><span class="kvl">输出速度</span><span class="kvr">${s.tps.toFixed(1)} t/s</span></div>
+     <div class="kvs">${s.tps > 0 ? esc((s.tpsModel ?? "").split("/").pop() ?? s.tpsModel) + " · 近8轮加权" : "空闲 90s+"}</div>
+     <div class="kv"><span class="kvl">缓存命中</span><span class="kvr">${K(s.cacheHit)}</span></div>
+     <div class="kvs">${s.nAll ?? s.n} 次请求 · 全量口径</div>
+     <div class="chips"><span>取消 ${s.cancels}</span><span>重试 ${s.retries}</span><span>压缩 ${s.compacts}</span>${s.errs ? `<span class="chip err">错误 ${s.errs}</span>` : ""}</div>`,
+    "", segCtl([["today", "今日"], ["all", "全部"]], "data-srange", srange));
+  // Token 统计：环形图（按模型占比）+ 点状图例
+  const bm = s.byModel ?? [];
+  html += card("Token 统计",
+    bm.length ? modelShare(bm, Kcn(s.usedTok)) : `<div class="note">暂无数据</div>`,
+    `${bm.length} 个模型`);
+  // 上下文趋势：每根柱一次完成请求，琥珀 = 压缩请求
   if (s.trend?.length) {
     const tm = Math.max(1, ...s.trend.map((x) => x.i + x.o));
-    html += `<div class="tile w2"><span class="l">逐请求上下文 · 近 ${s.trend.length} 次</span>
-      <div class="trend">${s.trend.map((x) => `<div class="b${x.c ? " c" : ""}"><u style="height:${(x.o * 100 / tm).toFixed(1)}%"></u><i style="height:${(x.i * 100 / tm).toFixed(1)}%"></i></div>`).join("")}</div>
-      <span class="s">柱高 = 输入（深）+ 输出（浅）；橙色 = 压缩请求</span></div>`;
+    const tsum = s.trend.reduce((a, x) => a + x.i + x.o, 0);
+    html += card("上下文趋势",
+      `<div class="trend">${s.trend.map((x) => `<div class="b${x.c ? " c" : ""}"><u style="height:${(x.o * 100 / tm).toFixed(1)}%"></u><i style="height:${(x.i * 100 / tm).toFixed(1)}%"></i></div>`).join("")}</div>
+       <div class="axis"><span>0</span><span>柱高 = 输入（实）+ 输出（淡）· 合计 ${Kcn(tsum)} tok</span></div>`,
+      `近 ${s.trend.length} 次`);
   }
-  if (s.sub.n > 0 && s.sub.list.length) {
-    html += listTile("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x) =>
-      `<div class="lrow"><span class="n">${esc(x.title)}</span>`
-      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span></span></div>`);
-  }
-  // 按模型（占大头，进度条归一；显示该模型最后一次请求的速度 = 切换前速度）
-  const mx = Math.max(1, ...s.byModel.map((m) => m.tok));
-  html += listTile("bymodel", "按模型", s.byModel, (m) =>
-    `<div class="lrow"><span class="n">${esc(m.model)}</span>`
-    + `<span class="x"><span class="num">${m.cnt} 次</span><span class="num">${Kcn(m.tok)} tok</span>`
-    + `<span class="num">${m.lastTps != null ? m.lastTps + " t/s" : "-"}</span>`
-    + `<span class="num">${m.cost != null ? FmtCost(m.cost) : "-"}</span></span></div>`
-    + `<div class="lbar"><i style="width:${Math.round(m.tok * 100 / mx)}%"></i></div>`);
-  // 工具明细：命令执行 / 文件活动 / 技能加载（来自 part 表，本会话 + 分支父会话）
-  if (s.cmds?.length) {
-    html += listTile("cmds", `命令执行 · ${s.cmds.reduce((a, x) => a + x.n, 0)} 次`, s.cmds, (x) =>
-      `<div class="lrow"><span class="n">${esc(x.prog)}</span>`
-      + `<span class="x"><span class="num">${x.n} 次</span><span class="num">${FmtMs(x.last)}</span></span></div>`);
-  }
-  if (s.files?.length) {
-    html += listTile("files", `文件活动 · ${s.files.reduce((a, x) => a + x.n, 0)} 次`, s.files, (x) =>
-      `<div class="lrow"><span class="n">${esc(String(x.path).split(/[\\/]/).pop())}</span>`
-      + `<span class="x"><span class="num">读 ${x.read} · 写 ${x.write}</span><span class="num">${x.n} 次</span></span></div>`);
-  }
-  if (s.skills?.length) {
-    html += listTile("skills", `技能加载 · ${s.skills.reduce((a, x) => a + x.n, 0)} 次`, s.skills, (x) =>
-      `<div class="lrow"><span class="n">${esc(x.name)}</span>`
-      + `<span class="x"><span class="num">${x.n} 次</span><span class="num">${FmtMs(x.last)}</span></span></div>`);
-  }
-  html += `</div>`;
+  // 明细卡片：子代理 / 命令执行 / 文件活动 / 技能加载
+  if (s.sub?.n > 0 && s.sub.list.length)
+    html += listCard("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x, i) =>
+      row(sCol(i), esc(x.title), `${x.cnt} 次 · ${Kcn(x.tok)} tok`), "无子代理");
+  if (s.cmds?.length)
+    html += listCard("cmds", `命令执行 · ${s.cmds.reduce((a, x) => a + x.n, 0)} 次`, s.cmds, (x, i) =>
+      row(sCol(i), esc(x.prog), `${x.n} 次 · ${FmtMs(x.last)}`));
+  if (s.files?.length)
+    html += listCard("files", `文件活动 · ${s.files.reduce((a, x) => a + x.n, 0)} 次`, s.files, (x, i) =>
+      row(sCol(i), esc(String(x.path).split(/[\\/]/).pop()), `读 ${x.read} · 写 ${x.write} · ${x.n} 次`));
+  if (s.skills?.length)
+    html += listCard("skills", `技能加载 · ${s.skills.reduce((a, x) => a + x.n, 0)} 次`, s.skills, (x, i) =>
+      row(sCol(i), esc(x.name), `${x.n} 次 · ${FmtMs(x.last)}`));
   return html;
 }
 
-// ---- 本工作区视图：同一套磁贴语言 ----
+// ---- 本工作区视图：dsh 卡片（用量总览 / Token 分布 / 每模型速度 / 按会话 / 活跃会话 / 压缩 / 近 7 日） ----
 function renderAll(D) {
   const s = D.sum;
   // 旧版 server 可能没有这些字段（宿主进程未重启时）：兜底不崩
   const tools = D.tools ?? { turns: 0, tools: 0, terr: 0 };
-  const sessN = D.sessN ?? 0;
-  const compactN = D.compactN ?? 0;
   const total = s.total ?? (s.inp + s.out);   // 旧 server 兜底
   const span = s.mx > s.mn ? FmtMs(s.mn) + " → " + FmtMs(s.mx) : "-";
   const rl = D.rangeLabel ?? "今日";
-  // 时间范围切换（今日 / 7 天 / 30 天 / 全部），点击由 document 委托处理
-  let html = `<div class="tabs ranges" role="tablist">${[["today", "今日"], ["7d", "7 天"], ["30d", "30 天"], ["all", "全部"]]
-    .map(([k, l]) => `<button data-range="${k}" class="${(D.range ?? "today") === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  html += `<div class="tiles">`;
-  // 主磁贴：所选范围 token 总量（结构对齐本会话的上下文占用主磁贴）
-  const cost = s.cost != null ? ` · 约 ${FmtCost(s.cost)}` : "";
   const scopeTip = D.scope === "workspace" ? "本工作区" : "全部工作区";
-  html += `<div class="tile ctx-t w2"><span class="l">${rl} Token 用量 · ${scopeTip}</span>
-    <span class="v">${Kcn(total)}<small> tokens</small></span>
-    <span class="s">${s.n} 次请求 · ${span}${cost}</span></div>`;
-  html += tile(`${rl}请求`, `${s.n}<small> 次</small>`, `${D.sessions.length} 个活跃会话`);
-  html += tile("输入 / 输出",
-    `<span style="color:var(--accent)">${Kcn(s.inp)}<small> / ${Kcn(s.out)}</small></span>`,
-    `${D.byModel.length} 个模型 · 输出含思考`);
-  html += tile(`${rl}工具调用`, `${tools.tools}`, `${tools.turns} 轮 · 错误 ${tools.terr}`);
-  html += tile("本工作区会话", `${sessN}<small> 个</small>`, `压缩 ${compactN} 次`);
-  html += listTile("sessions", "活跃会话 · 30 分钟窗口", D.sessions, (x) => {
+  // 用量总览：大数字 + KPI 组 + 今日/全部切换，点击由 document 委托处理
+  let html = card(`${rl} Token 用量`,
+    `<div class="bignum"><b>${Kcn(total)}</b><span>tokens</span>
+      <span class="bigpct"><b>${s.cost != null ? FmtCost(s.cost) : "-"}</b><span>估算成本</span></span></div>
+     <div class="kpis">${kpi("请求", s.n)}${kpi("会话", D.sessN ?? 0)}${kpi("工具调用", tools.tools)}${kpi("压缩", D.compactN ?? 0)}</div>
+     <div class="chips"><span>${s.n} 次请求</span><span>${span}</span><span>输入 ${Kcn(s.inp)} · 输出 ${Kcn(s.out)}</span><span>${D.byModel.length} 个模型</span>${tools.terr ? `<span class="chip err">错误 ${tools.terr}</span>` : ""}</div>`,
+    scopeTip, segCtl([["today", "今日"], ["all", "全部"]], "data-range", D.range ?? "today"));
+  // 按模型：环形图 + 点状图例
+  const bm = D.byModel ?? [];
+  html += card(`按模型 · ${rl}`,
+    bm.length ? modelShare(bm, Kcn(bm.reduce((a, x) => a + x.tok, 0))) : `<div class="note">${rl}暂无数据</div>`);
+  if (D.dmodels?.length)
+    html += listCard("dmodels", `每模型速度 · ${rl}`, D.dmodels, (m, i) => {
+      const c = SpdC(m.tpsV);
+      return row(sCol(i), esc(m.model), `<span>${esc(m.prov)}</span><span class="num">${m.cnt} 次</span><span class="badge ${c}">${m.tps} t/s</span>`);
+    }, `${rl}暂无数据`);
+  const tBySess = D.bySession.reduce((a, x) => a + x.tok, 0) || 1;
+  html += listCard("bySession", `按会话 · ${rl}`, D.bySession, (x, i) =>
+    row(sCol(i), esc(x.title ?? x.model), `${x.cnt} 次 · ${Kcn(x.tok)} tok · ${Math.round(x.tok * 100 / tBySess)}%`), `${rl}暂无数据`);
+  html += listCard("sessions", "活跃会话 · 30 分钟窗口", D.sessions, (x) => {
     const c = SpdC(x.tps), ttft = x.ttft != null ? x.ttft.toFixed(1) + "s" : "-";
-    return `<div class="lrow" style="flex-direction:column;align-items:stretch;gap:1px;padding:6px 0">`
-      + `<div style="display:flex;align-items:center;gap:8px"><span class="n">${esc(x.title)}</span><span class="badge ${c}">${x.tps.toFixed(1)} t/s</span></div>`
-      + `<div class="x" style="overflow:hidden;text-overflow:ellipsis"><span class="num">${esc(x.model)}</span><span class="num">首字 ${ttft}</span><span class="num">${x.rpm.toFixed(1)} 次/分</span><span class="num">${x.cnt} 次</span></div>`
-      + `</div>`;
+    return row(null, esc(x.title), `<span class="num">${esc(x.model)}</span><span class="num">首字 ${ttft}</span><span class="num">${x.rpm.toFixed(1)} 次/分</span><span class="num">${x.cnt} 次</span><span class="badge ${c}">${x.tps.toFixed(1)} t/s</span>`);
   }, "30 分钟内无活动会话");
-  const shareRow = (total) => (x) => {
-    const p = Math.round(x.tok * 100 / total);
-    return `<div class="lrow"><span class="n">${esc(x.title ?? x.model)}</span>`
-      + `<span class="x"><span class="num">${x.cnt} 次</span><span class="num">${Kcn(x.tok)} tok</span><span class="num">${p}%</span>${x.cost != null ? `<span class="num">${FmtCost(x.cost)}</span>` : ""}</span></div>`
-      + `<div class="lbar"><i style="width:${p}%"></i></div>`;
-  };
-  const tByModel = D.byModel.reduce((a, x) => a + x.tok, 0) || 1;
-  const tBySession = D.bySession.reduce((a, x) => a + x.tok, 0) || 1;
-  html += listTile("bySession", `按会话 · ${rl}（本工作区）`, D.bySession, shareRow(tBySession), `${rl}暂无数据`);
-  html += listTile("byModel", `按模型 · ${rl}（本工作区）`, D.byModel, shareRow(tByModel), `${rl}暂无数据`);
-  html += listTile("dmodels", `每模型速度 · ${rl}（本工作区）`, D.dmodels, (m) => {
-    const c = SpdC(m.tpsV), w = Math.min(100, Math.round(m.tpsV / 120 * 100));
-    return `<div class="lrow"><span class="n">${esc(m.model)}</span>`
-      + `<span class="x"><span>${esc(m.prov)}</span><span class="num">${m.cnt} 次</span><span class="num">${m.tps} t/s</span></span></div>`
-      + `<div class="lbar"><i class="${c}" style="width:${w}%"></i></div>`;
-  }, `${rl}暂无数据`);
-  html += listTile("compact", `会话压缩 · 30 天内（本工作区） ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
-    `<div class="lrow"><span class="n">${esc(c.title)}</span>`
-    + `<span class="x"><span class="num">${c.n} 次</span><span class="num">${FmtMs(c.last)}</span></span></div>`, "30 天内无压缩会话");
-  // 活动热力图：近 8 周，颜色越深当天 token 越多
-  if (D.heat?.some((x) => x.tok > 0)) {
-    const hm = Math.max(1, ...D.heat.map((x) => x.tok));
-    const lvl = (t) => t <= 0 ? 0 : t < hm * 0.15 ? 1 : t < hm * 0.35 ? 2 : t < hm * 0.65 ? 3 : 4;
-    const op = [0, 0.18, 0.35, 0.6, 1];
-    html += `<div class="tile w2"><span class="l">活动热力图 · 近 8 周</span>`
-      + `<div class="heat">${D.heat.map((x) => `<i title="${x.d} ${Kcn(x.tok)}" style="background:${x.tok > 0 ? "var(--accent)" : "var(--soft)"};opacity:${x.tok > 0 ? op[lvl(x.tok)] : 1}"></i>`).join("")}</div>`
-      + `<span class="s">越深 = 当天 token 越多（本工作区）</span></div>`;
-  }
-  // 近 7 日：token 与成本成对柱
+  html += listCard("compact", `会话压缩 · 30 天内 ${D.compact.reduce((a, c) => a + c.n, 0)} 次`, D.compact, (c) =>
+    row(null, esc(c.title), `${c.n} 次 · ${FmtMs(c.last)}`), "30 天内无压缩会话");
+  // 近 7 日：token 与成本双行条（dsh usage 配色：tokens 蓝 / cost 绿）
   if (D.days.some((d) => d.tok > 0)) {
     const mx = Math.max(1, ...D.days.map((d) => d.tok));
     const mc = Math.max(1e-6, ...D.days.map((d) => d.cost ?? 0));
-    html += `<div class="tile w2"><span class="l" style="margin-bottom:2px">近 7 日 · token 与成本（本工作区）</span>`
-      + D.days.map((d) =>
-        `<div class="day"><span class="num">${d.label}</span>`
-        + `<div><div class="day-bar"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>`
-        + `<div class="day-bar cost"><i style="width:${Math.round((d.cost ?? 0) * 100 / mc)}%"></i></div></div>`
-        + `<span class="num">${Kcn(d.tok)} · ${FmtCost(d.cost ?? 0)}</span></div>`).join("") + `</div>`;
+    html += card(`近 7 日 · Token 与成本`,
+      `<div class="dkey"><span><i class="sw tok"></i>tokens</span>
+        <span><i class="sw cost"></i>成本</span></div>
+       <div class="days">${D.days.map((d) =>
+         `<div class="day"><span class="num">${d.label}</span>
+          <div class="day-bars"><div class="day-bar tok"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>
+          <div class="day-bar cost"><i style="width:${Math.round((d.cost ?? 0) * 100 / mc)}%"></i></div></div>
+          <span class="num">${Kcn(d.tok)} · ${FmtCost(d.cost ?? 0)}</span></div>`).join("")}</div>`,
+      scopeTip);
   }
-  html += `</div>`;
   return html;
 }
 
@@ -394,7 +417,7 @@ async function refresh() {
   if (Dead || refreshing || document.hidden) return;
   refreshing = true;
   try {
-    const d = await callTool("get_tokens_overview", { range: Range });
+    const d = await callTool("get_tokens_overview", { range: Range, sessRange: SessRange });
     LastD = d; render(LastD);
   }
   catch (e) { showErr(e); }
