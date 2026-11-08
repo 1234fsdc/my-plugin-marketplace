@@ -2,7 +2,8 @@
 // 数据口径 1:1 移植自 TokenDetailsNative.cs RefreshDetail（zcode 源）：
 // today_summary / session_stats(30min) / dmodels(500行+8条加权) / today_by_model /
 // today_sessions(子代理归并) / compact_stats(30天) / week_daily(7日)。
-// 只读打开 ~/.zcode/cli/db/db.sqlite；按会话缓存明细聚合（指纹=用量最新时间 + part/message 行数与最新写入），空闲轮询只查指纹。
+// 只读打开 ~/.zcode/cli/db/db.sqlite；会话明细分两层缓存：轻件随指纹（用量最新时间 + part/message 行数与最新写入）重算，
+// 重件（part 大 JSON 扫描）120s 节流，空闲轮询只查指纹。
 // 协议：MCP stdio = 换行分隔 JSON-RPC 2.0。stdout 只发协议消息，日志走 stderr。
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
@@ -311,11 +312,12 @@ function overview(sid, range) {
     scope: proj ? "workspace" : "all", range: rangeKey, rangeLabel };
 }
 
-// ---- 会话明细缓存：part/message 聚合与按模型统计只在数据变化时重算（指纹见 sessStats） ----
-// 多会话并行（多个面板）时按指纹各留一份，最多 4 份
+// ---- 会话明细缓存：轻件随指纹重算、重件 120s 节流（分层见 sessStats 缓存块） ----
+// 多会话并行（多个面板）时按会话+范围各留一份，最多 4 份
 let DetailCache = new Map();
 // t0 = 起始时间戳（today 时为当天 0 点，all 时为 0 = 不过滤）；compose 是实时口径不过滤
-function buildDetail(h, sids, ctxTok, t0) {
+// 轻件：按模型/成本/趋势/耗时（model_usage 聚合 ~70ms/次），每拍照算保实时；重件见 buildHeavy
+function buildLight(h, sids, t0) {
   const inSid = sids.map(() => "?").join(",");
   // 按模型（含最近一次速度）：单次扫描 + 窗口函数取每组最新，替代逐组相关子查询（实测 597ms → 56ms）
   const byModelRows = h.prepare(
@@ -332,8 +334,41 @@ function buildDetail(h, sids, ctxTok, t0) {
   const byModel = byModelRows
     .map((r) => ({ model: r.m ?? "-", cnt: num(r.cnt), tok: num(r.tok), lastTps: r.last_tps == null ? null : num(r.last_tps), cost: costOf(r.m, r.i, r.o) }));
   const cost = byModelRows.reduce((a, r) => a + costOf(r.m, r.i, r.o), 0);   // 会话成本（含分支继承，仅计有官方价的模型）
-  // 上下文组成（估算：part 正文/工具输入输出字符数 × TOK_PER_CHAR，按消息角色区分用户/助手；
-  // 累计内容按最近一次请求的 input_tokens 折算，避免与同屏"上下文占用"口径冲突）
+  // 逐请求上下文趋势（每根柱 = 一次完成请求；压缩请求单独标记）
+  const trend = h.prepare(
+    `SELECT input_tokens i, output_tokens o, query_source q, COALESCE(completed_at,started_at) t
+     FROM model_usage WHERE session_id IN (${inSid}) AND status='completed' AND COALESCE(completed_at,started_at)>=?
+     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 40`).all(...sids, t0).reverse()
+    .map((r) => ({ i: num(r.i), o: num(r.o), c: r.q === "compact" ? 1 : 0, t: num(r.t) }));
+  const tmRow = h.prepare(
+    `SELECT COALESCE(SUM(CASE WHEN query_source!='compact' AND first_token_at IS NOT NULL AND started_at IS NOT NULL AND first_token_at>=started_at THEN first_token_at-started_at END),0) wait,
+       COALESCE(SUM(CASE WHEN query_source!='compact' AND duration_ms>0 THEN duration_ms END),0) model,
+       MIN(CASE WHEN query_source!='compact' THEN started_at END) s0,
+       MAX(CASE WHEN query_source!='compact' THEN COALESCE(completed_at,started_at) END) s1
+     FROM model_usage WHERE session_id IN (${inSid}) AND COALESCE(completed_at,started_at)>=?`).get(...sids, t0);
+  const modelMs = num(tmRow.model), waitMs = Math.min(num(tmRow.wait), modelMs);
+  const spanMs = tmRow.s0 && tmRow.s1 ? Math.max(0, num(tmRow.s1) - num(tmRow.s0)) : 0;
+  const timing = { waitMs, genMs: modelMs - waitMs, otherMs: Math.max(0, spanMs - modelMs) };
+  // 耗时时间轴：最近 30 次完成请求的 [发起, 首字, 完成]；面板画紫(等待)/蓝(生成)两段，段间空隙=工具执行与等待
+  // 有效性条件放 SQL（LIMIT 前），异常行不占配额也不被静默吞掉
+  const seq = h.prepare(
+    `SELECT started_at s, first_token_at ft, COALESCE(completed_at,started_at) c
+     FROM model_usage WHERE session_id IN (${inSid}) AND status='completed' AND query_source!='compact'
+       AND started_at IS NOT NULL AND completed_at IS NOT NULL AND completed_at > started_at
+       AND (first_token_at IS NULL OR first_token_at >= started_at)
+       AND COALESCE(completed_at,started_at)>=?
+     ORDER BY started_at DESC LIMIT 30`).all(...sids, t0).reverse()
+    .map((r) => ({ s: num(r.s), ft: r.ft == null ? null : num(r.ft), c: num(r.c) }));
+  timing.seq = seq;
+  return { byModel, cost, trend, timing };
+}
+
+// 重件：part 表大 JSON 扫描（组成/事件/命令/文件/技能，实测 ~0.7s/次），调用方 120s 节流——
+// 活跃会话指纹每拍必变，全量重算曾是最大 CPU 项（摊 30s 档 ≈5.6%）；这些是慢变统计，滞后 ≤2 分钟无感
+function buildHeavy(h, sids, t0) {
+  const inSid = sids.map(() => "?").join(",");
+  // 上下文组成（估算：part 正文/工具输入输出字符数 × TOK_PER_CHAR，按消息角色区分用户/助手）；
+  // 这里只出原始折算，按实时上下文占用的比例缩放留给轻路径（每拍）
   const composeRaw = h.prepare(
     `SELECT CASE
         WHEN json_extract(p.data,'$.type')='reasoning' THEN 'reasoning'
@@ -352,21 +387,14 @@ function buildDetail(h, sids, ctxTok, t0) {
     .filter((r) => r.tok > 0)
     .sort((a, b) => b.tok - a.tok);
   const cTot = composeRaw.reduce((a, x) => a + x.tok, 0);
-  const compose = (cTot > 0 && ctxTok > 0)
-    ? composeRaw.map((x) => ({ ...x, tok: Math.round(x.tok * ctxTok / cTot) }))
-    : composeRaw;
-  // 逐请求上下文趋势（每根柱 = 一次完成请求；压缩请求单独标记）
-  const trend = h.prepare(
-    `SELECT input_tokens i, output_tokens o, query_source q, COALESCE(completed_at,started_at) t
-     FROM model_usage WHERE session_id IN (${inSid}) AND status='completed' AND COALESCE(completed_at,started_at)>=?
-     ORDER BY COALESCE(completed_at,started_at) DESC LIMIT 40`).all(...sids, t0).reverse()
-    .map((r) => ({ i: num(r.i), o: num(r.o), c: r.q === "compact" ? 1 : 0, t: num(r.t) }));
   // 工具明细：命令执行 / 文件活动 / 技能加载（一次查询在 JS 聚合）
   const toolRows = h.prepare(
     `SELECT COALESCE(json_extract(p.data,'$.state.title'), json_extract(p.data,'$.tool')) tool,
-      json_extract(p.data,'$.state.input.command') cmd,
       json_extract(p.data,'$.state.input.file_path') fp,
       json_extract(p.data,'$.state.input.skill') sk,
+      json_extract(p.data,'$.state.input.old_string') os,
+      json_extract(p.data,'$.state.input.new_string') ns,
+      json_extract(p.data,'$.state.input.content') ct,
       p.time_created tc
      FROM part p WHERE p.session_id IN (${inSid}) AND json_extract(p.data,'$.type')='tool' AND p.time_updated>=?`).all(...sids, t0);
   const NOISE = new Set(["cd", "echo", "export", "set", "source", ".", "true", ":", "sleep"]);
@@ -381,19 +409,16 @@ function buildDetail(h, sids, ctxTok, t0) {
     }
     return "?";
   };
-  const cmds = new Map(), files = new Map(), skills = new Map();
+  const files = new Map(), skills = new Map();
+  const lines = (s) => { const t = String(s ?? ""); return t ? t.split("\n").length : 0; };
   for (const r of toolRows) {
-    if (r.cmd) {
-      const k = progOf(r.cmd);
-      const e = cmds.get(k) ?? { prog: k, n: 0, last: 0 };
-      e.n++; e.last = Math.max(e.last, num(r.tc)); cmds.set(k, e);
-    }
     if (r.fp) {
       const k = String(r.fp);
-      const e = files.get(k) ?? { path: k, n: 0, read: 0, write: 0, last: 0 };
+      const e = files.get(k) ?? { path: k, n: 0, read: 0, write: 0, ins: 0, del: 0, last: 0 };
       e.n++;
       if (r.tool === "Read") e.read++;
-      else if (r.tool === "Edit" || r.tool === "Write") e.write++;
+      else if (r.tool === "Edit") { e.write++; e.ins += lines(r.ns); e.del += lines(r.os); }
+      else if (r.tool === "Write") { e.write++; e.ins += lines(r.ct); }
       e.last = Math.max(e.last, num(r.tc)); files.set(k, e);
     }
     if (r.sk) {
@@ -403,7 +428,85 @@ function buildDetail(h, sids, ctxTok, t0) {
     }
   }
   const top = (m, n) => [...m.values()].sort((a, b) => b.n - a.n).slice(0, n);
-  return { byModel, cost, compose, trend, cmds: top(cmds, 20), files: top(files, 20), skills: top(skills, 20) };
+  // 上下文事件：part 表 timeline 类型是宿主原生记录（压缩/模型切换/分叉），比 model_usage 差值推断准
+  const evRows = h.prepare(
+    `SELECT json_extract(p.data,'$.timelineType') tt, json_extract(p.data,'$.toModel.modelID') m2, p.time_created tc
+     FROM part p WHERE p.session_id IN (${inSid}) AND json_extract(p.data,'$.type')='timeline'
+       AND p.time_created>=? ORDER BY p.time_created DESC LIMIT 60`).all(...sids, t0);
+  const events = evRows.reverse().flatMap((r) => {
+    if (r.tt === "context_compaction") return [{ t: num(r.tc), kind: "compact", text: "上下文压缩" }];
+    if (r.tt === "session_fork") return [{ t: num(r.tc), kind: "fork", text: "会话分叉" }];
+    if (r.tt === "model_change" && r.m2) return [{ t: num(r.tc), kind: "model", text: `切换到 ${r.m2}` }];
+    return [];
+  });
+  // 命令执行升级：tool_usage 有真实耗时/退出码/取消，callID 与 part 精确关联拿命令文本
+  const cmdRows = h.prepare(
+    `SELECT tu.duration_ms dur, tu.exit_code ex, tu.status st, tu.cancelled_by_user canc,
+       json_extract(p.data,'$.state.input.command') cmd, p.time_created tc
+     FROM tool_usage tu JOIN part p ON json_extract(p.data,'$.callID') = tu.tool_call_id
+     WHERE tu.session_id IN (${inSid}) AND tu.tool_name='Bash' AND p.session_id IN (${inSid}) AND tu.started_at>=?`).all(...sids, ...sids, t0);
+  const cmds2 = new Map();
+  for (const r of cmdRows) {
+    if (!r.cmd) continue;
+    const k = progOf(r.cmd);
+    const e = cmds2.get(k) ?? { prog: k, n: 0, err: 0, cancel: 0, slow: 0, sum: 0, sn: 0, last: 0 };
+    e.n++;
+    if (r.st === "error" || (r.ex != null && r.ex !== 0)) e.err++;
+    if (r.canc) e.cancel++;
+    const d = num(r.dur);
+    if (d > 0) { e.slow = Math.max(e.slow, d); e.sum += d; e.sn++; }
+    e.last = Math.max(e.last, num(r.tc));
+    cmds2.set(k, e);
+  }
+  const cmds = [...cmds2.values()].sort((a, b) => b.n - a.n).slice(0, 20)
+    .map((e) => ({ ...e, avg: e.sn ? Math.round(e.sum / e.sn) : 0 }));
+  return { composeRaw, cTot, events, cmds, files: top(files, 20), skills: top(skills, 20) };
+}
+
+// ---- 会话内容（面板按需加载，不在轮询里；轮次 = 用户文本消息分界，只看本会话不合并父会话） ----
+function sessionContent(sid) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$/.test(sid)) return null;
+  const h = db();
+  if (!h.prepare(`SELECT 1 FROM session WHERE id=?`).get(sid)) return null;
+  // 文本消息（角色经 message JOIN）+ 工具调用标题，升序取回后在 JS 按用户消息切轮次
+  const rows = h.prepare(
+    `SELECT json_extract(p.data,'$.type') ty, json_extract(m.data,'$.role') role,
+       json_extract(p.data,'$.synthetic') syn, json_extract(p.data,'$.text') txt,
+       COALESCE(json_extract(p.data,'$.state.title'), json_extract(p.data,'$.tool')) tool,
+       p.time_created tc
+     FROM part p LEFT JOIN message m ON m.id=p.message_id
+     WHERE p.session_id=? AND json_extract(p.data,'$.type') IN ('text','tool')
+     ORDER BY p.time_created`).all(sid);
+  const turns = [];
+  let cur = null;
+  // 宿主注入的提示（todo 提醒/压缩续接/env 上下文）带 part.synthetic 标志，不是真实输入，整条跳过；
+  // 真实消息内联的 <system-reminder> 包裹块仍剥一层兜底
+  const strip = (s) => String(s ?? "")
+    .replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, "")
+    .replace(/<untrusted_gen_ui_state>[\s\S]*?<\/untrusted_gen_ui_state>/g, "");
+  for (const r of rows) {
+    if (r.syn) continue;
+    const txt = r.ty === "text" ? strip(r.txt) : "";
+    if (r.ty === "text" && r.role === "user" && txt.trim()) {
+      cur = { t: num(r.tc), user: txt, tools: [], reply: "" };
+      turns.push(cur);
+    } else if (!cur) {
+      cur = { t: num(r.tc), user: "", tools: [], reply: "" };   // 开头没有用户文本（继续/分叉会话）兜底
+      turns.push(cur);
+    } else if (txt) {
+      cur.reply = cur.reply ? `${cur.reply}\n${txt}` : txt;
+    } else if (r.tool) {
+      cur.tools.push(String(r.tool));
+    }
+  }
+  const cut = (s, n) => { s = String(s ?? "").trim(); return s.length > n ? s.slice(0, n) : s; };
+  return {
+    turns: turns.slice(-20).map((x) => ({
+      t: x.t, user: cut(x.user, 200), reply: cut(x.reply, 160),
+      tools: x.tools.slice(0, 4), toolN: x.tools.length,
+    })),
+    total: turns.length,
+  };
 }
 
 // ---- 当前会话统计（宿主在 tools/call 的 _meta 注入会话 ID，对照 zcode-context readSessionContext） ----
@@ -491,22 +594,52 @@ function sessStats(sid, range) {
      FROM session s LEFT JOIN model_usage u ON u.session_id=s.id
      WHERE s.parent_id=? AND COALESCE(u.completed_at,u.started_at)>=?`).get(sid, t0);
   const subList = h.prepare(
-    `SELECT COALESCE(NULLIF(s.title,''), s.id) title, COUNT(u.id) cnt,
-      COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok
+    `SELECT COALESCE(NULLIF(s.title,''), s.id) title, s.last_outcome outcome, s.time_created tc, s.time_updated tu,
+      COUNT(u.id) cnt, COALESCE(SUM(u.input_tokens+u.output_tokens),0) tok,
+      MIN(u.started_at) f, MAX(COALESCE(u.completed_at,u.started_at)) l
      FROM session s LEFT JOIN model_usage u ON u.session_id=s.id
      WHERE s.parent_id=? AND COALESCE(u.completed_at,u.started_at)>=? GROUP BY s.id HAVING cnt>0 OR tok>0 ORDER BY tok DESC LIMIT 20`).all(sid, t0)
-    .map((r) => ({ title: r.title, cnt: num(r.cnt), tok: num(r.tok) }));
+    .map((r) => ({ title: r.title, cnt: num(r.cnt), tok: num(r.tok), outcome: r.outcome ?? null,
+      tc: num(r.tc), tu: num(r.tu), f: num(r.f), l: num(r.l),
+      running: r.outcome == null && num(r.tu) > Date.now() - 90000 }));
+  // 委派名：父会话 Agent 工具的 input.description，按创建时间就近配给每个子代理
+  const agParts = h.prepare(
+    `SELECT json_extract(p.data,'$.state.input.description') d, p.time_created tc
+     FROM part p WHERE p.session_id=? AND json_extract(p.data,'$.tool')='Agent'
+       AND json_extract(p.data,'$.state.input.description') IS NOT NULL ORDER BY p.time_created`).all(sid);
+  for (const s of subList) {
+    const cands = agParts.filter((a) => a.tc <= s.tc);
+    const best = cands.length ? cands[cands.length - 1].d : (agParts.find((a) => a.tc > s.tc)?.d ?? null);
+    s.desc = best ?? null;
+  }
   // 明细缓存：用量完成/开始时间或 part/message 写入有变化才重算（空闲轮询只剩指纹查询）
   // part/message 的 COUNT 一并入指纹：回滚删行不会抬高 MAX(time_updated)，靠行数变化发现
   const ctxTok = ctxRow ? num(ctxRow.i) : 0;
   const pfp = h.prepare(`SELECT COUNT(*) c, MAX(time_updated) m FROM part WHERE session_id IN (${inSid})`).get(...sids);
   const mfp = h.prepare(`SELECT COUNT(*) c, MAX(time_updated) m FROM message WHERE session_id IN (${inSid})`).get(...sids);
-  const dkey = `${sid}|${pid ?? ""}|${num(t.last_done)}|${ctxTok}|${t0}|${num(pfp?.c)}:${num(pfp?.m)}|${num(mfp?.c)}:${num(mfp?.m)}`;
-  if (!DetailCache.has(dkey)) {
-    if (DetailCache.size >= 4) DetailCache.delete(DetailCache.keys().next().value);
-    DetailCache.set(dkey, buildDetail(h, sids, ctxTok, t0));
+  // 明细缓存分两层：轻件（按模型/趋势/耗时）随指纹每拍照算；重件（组成/事件/命令/文件/技能，part 大 JSON
+  // 扫描 ~0.7s/次）120s 节流——活跃会话指纹每拍必变，原全量重算摊到 30s 档实测 ≈5.6% CPU。键 = 会话+范围，
+  // 指纹 = 用量完成时间 + 上下文占用 + part/message 行数与最新写入（回滚删行靠行数变化发现）
+  const ckey = `${sid}|${pid ?? ""}|${t0}`;
+  const fp = `${num(t.last_done)}|${ctxTok}|${num(pfp?.c)}:${num(pfp?.m)}|${num(mfp?.c)}:${num(mfp?.m)}`;
+  let ent = DetailCache.get(ckey);
+  if (!ent || ent.fp !== fp) {
+    if (!ent) {
+      if (DetailCache.size >= 4) DetailCache.delete(DetailCache.keys().next().value);
+      ent = { fp, heavy: null, at: 0 };
+      DetailCache.set(ckey, ent);
+    } else ent.fp = fp;
+    Object.assign(ent, buildLight(h, sids, t0));
   }
-  const { byModel, cost: sessCost, compose, trend, cmds, files, skills } = DetailCache.get(dkey);
+  if (!ent.heavy || Date.now() - ent.at > 120000) {
+    ent.heavy = buildHeavy(h, sids, t0);
+    ent.at = Date.now();
+  }
+  const compose = (ent.heavy.cTot > 0 && ctxTok > 0)
+    ? ent.heavy.composeRaw.map((x) => ({ ...x, tok: Math.round(x.tok * ctxTok / ent.heavy.cTot) }))
+    : ent.heavy.composeRaw;
+  const { byModel, cost: sessCost, trend, timing } = ent;
+  const { events, cmds, files, skills } = ent.heavy;
   const durMs = Math.max(0, num(t.last_done) - num(meta.time_created));
   // 本会话真实 token 总量：input + output（含思考，output 已是 output_tokens 含 reasoning 的口径，见 out_p 交叉验证）
   const usedTok = num(tr.inp) + num(tr.out_p);
@@ -525,7 +658,7 @@ function sessStats(sid, range) {
     errs: num(tr.errs), cancels: num(tr.cancels), compacts: num(tr.compacts), retries: num(tr.retries),
     durMs, firstReq: num(t.first_req), lastDone: num(t.last_done),
     sub: { n: num(sub.n), tok: num(sub.tok), list: subList },
-    compose, trend, cmds, files, skills,
+    compose, trend, events, timing, cmds, files, skills,
     byModel,
   };
 }
@@ -541,6 +674,13 @@ const TOOL = {
   annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   _meta: { ui: { visibility: ["app"] } },
 };
+const TOOL2 = {
+  name: "get_session_content",
+  description: "App-only read-only recent conversation turns of the current session (user message, tool titles, assistant reply preview). Panel loads it on demand, not in polling.",
+  inputSchema: { type: "object", properties: {} },
+  annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  _meta: { ui: { visibility: ["app"] } },
+};
 
 function handle(msg) {
   const { id, method, params } = msg;
@@ -551,12 +691,16 @@ function handle(msg) {
       serverInfo: { name: "token-details-panel", version: "1.0.0" },
     };
   }
-  if (method === "tools/list") return { tools: [TOOL] };
+  if (method === "tools/list") return { tools: [TOOL, TOOL2] };
   if (method === "tools/call") {
-    if (params?.name !== TOOL.name) throw new Error(`Unknown tool: ${params?.name}`);
+    if (params?.name !== TOOL.name && params?.name !== TOOL2.name) throw new Error(`Unknown tool: ${params?.name}`);
     // 会话绑定：宿主注入 _meta["com.zcode/request-context"].session_id（对照 zcode-context）
     const sid = params?._meta?.["com.zcode/request-context"]?.session_id;
     if (!SessLogged) { SessLogged = true; log("session binding:", sid ? `ok ${sid}` : `absent (meta keys: ${params?._meta ? Object.keys(params._meta).join(",") : "none"})`); }
+    if (params.name === TOOL2.name) {
+      const c = sessionContent(sid);
+      return { content: [], structuredContent: c ?? { turns: [], total: 0 } };
+    }
     return { content: [], structuredContent: { ...overview(sid, params?.arguments?.range), sess: sid ? sessStats(sid, params?.arguments?.sessRange) : null } };
   }
   if (method === "resources/list") {
@@ -577,6 +721,8 @@ function handle(msg) {
 }
 
 const rl = createInterface({ input: process.stdin });
+// stdin EOF = 宿主已关管道（会话结束/面板弃用连接）：自杀退出，防会话开一个进程堆一个
+rl.on("close", () => process.exit(0));
 rl.on("line", (line) => {
   const t = line.trim();
   if (!t) return;

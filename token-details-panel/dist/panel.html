@@ -40,11 +40,9 @@
   .seg button{border:0;background:transparent;color:var(--muted);font:500 11px/1 var(--sans);padding:4px 10px;border-radius:5px;cursor:pointer;white-space:nowrap}
   .seg button.on{background:var(--fg);color:var(--bg2)}
   /* KPI 组（lc-stat） */
-  .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-bottom:2px}
-  .kpi{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:6px 4px;display:flex;flex-direction:column;gap:2px;min-width:0}
-  .kl{color:var(--muted);font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .kv2{font-size:16px;font-weight:700;text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .ks{color:var(--muted);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:center}
+  .kvline{display:flex;flex-wrap:wrap;gap:3px 16px;font-size:12px;padding:1px 0 7px}
+  .kvline span{white-space:nowrap}
+  .kvline b{font-weight:600;font-variant-numeric:tabular-nums}
   /* 大数字行（lc-overview-num） */
   .bignum{display:flex;align-items:baseline;gap:6px;flex-wrap:wrap;margin-bottom:8px}
   .bignum b{font-size:22px;letter-spacing:-.01em;font-variant-numeric:tabular-nums}
@@ -53,18 +51,19 @@
   .bigpct b{font-size:20px;font-variant-numeric:tabular-nums}
   .bigpct span{font-size:10.5px}
   .bigpct.warn b{color:var(--warn)}.bigpct.over b{color:var(--down)}
-  /* 堆叠分段条 + 斜纹剩余（当前上下文） */
-  .stack{display:flex;height:10px;border-radius:5px;overflow:hidden;background:var(--soft);margin:2px 0 10px}
-  .stack i{display:block;height:100%}
-  .stack .rest{flex:1;background:repeating-linear-gradient(45deg,transparent 0 4px,var(--soft) 4px 7px)}
+  /* 堆叠分段条 + 斜纹剩余（当前上下文）；mark = 实测压缩触发线 */
+  .stack{position:relative;display:flex;height:10px;border-radius:5px;overflow:visible;background:var(--soft);margin:2px 0 10px}
+  .stack>i{display:block;height:100%;border-radius:5px 0 0 5px}
+  .stack .rest{flex:1;border-radius:0 5px 5px 0;background:repeating-linear-gradient(45deg,transparent 0 4px,var(--soft) 4px 7px)}
+  .stack .mark{position:absolute;top:-3px;bottom:-3px;width:2px;border-radius:1px;background:var(--warn)}
   /* 点状图例（lc-sl） */
-  .sl{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:4px 8px;width:100%}
+  .sl{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 10px;width:100%}
   .slr{display:flex;flex-direction:column;gap:1px;font-size:12px;min-width:0}
-  .slm{display:flex;align-items:center;gap:6px;min-width:0}
-  .dot{flex:none;width:8px;height:8px;border-radius:2px;display:inline-block}
-  .sll{flex:1;font-weight:600;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .slp{flex:none;min-width:30px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums}
-  .sls{margin-left:14px;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .slm{display:flex;align-items:flex-start;gap:6px;min-width:0}
+  .dot{flex:none;width:8px;height:8px;border-radius:2px;display:inline-block;margin-top:4px}
+  .sll{flex:1;font-weight:600;line-height:1.25;word-break:break-all}
+  .slp{flex:none;min-width:30px;text-align:right;font-weight:700;font-variant-numeric:tabular-nums;margin-top:1px}
+  .sls{margin-left:14px;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums;line-height:1.4}
   /* 键值明细行 + chips */
   .kv{display:flex;align-items:baseline;gap:8px;padding:5px 0 2px;font-size:12px}
   .kv+.kv,.kv~.kvs+.kv{border-top:1px solid var(--soft)}
@@ -78,8 +77,7 @@
   .donut{position:relative;flex:none}
   .donut svg{display:block}
   .dc{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;text-align:center;pointer-events:none}
-  .dc b{font-size:15px;line-height:1.15;max-width:80px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
-  .dc span{color:var(--muted);font-size:10px}
+  .dc b{font-size:14px;line-height:1.15;max-width:84px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums}
   /* 逐请求趋势柱图 */
   .trend{display:flex;align-items:flex-end;gap:2px;height:64px;margin-top:4px}
   .trend .b{flex:1;min-width:2px;height:100%;display:flex;flex-direction:column;justify-content:flex-end}
@@ -87,6 +85,16 @@
   .trend .b i{display:block;background:var(--c-assist)}
   .trend .b.c u,.trend .b.c i{background:var(--c-file);opacity:.9}
   .axis{display:flex;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-top:5px;font-variant-numeric:tabular-nums}
+  /* 子代理泳道（时间线复盘） */
+  .lane{display:grid;grid-template-columns:minmax(88px,132px) 1fr auto;gap:8px;align-items:center;padding:4px 0;font-size:11.5px}
+  .lane+.lane{border-top:1px solid var(--soft)}
+  .ln{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted);font-weight:600}
+  .lb{position:relative;height:10px;background:var(--bg2);border-radius:3px}
+  .lb i{position:absolute;top:1px;bottom:1px;border-radius:3px;min-width:3px;background:var(--c-assist)}
+  .lb i.run{background:var(--warn)}
+  .lb i.err{background:var(--down)}
+  .lt{display:flex;justify-content:space-between;color:var(--faint);font-size:10px;margin-bottom:4px;font-variant-numeric:tabular-nums}
+  .lane .num{color:var(--muted);font-size:10.5px}
   /* 列表行（点 + 名 + 右值） */
   .lr{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:12.5px}
   .lr+.lr{border-top:1px solid var(--soft)}
@@ -108,17 +116,22 @@
   /* 近 7 日双柱（dsh usage 配色：tokens 蓝 / cost 绿） */
   .days{display:flex;flex-direction:column;gap:3px}
   .day{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:8px;font-size:12px}
-  .day-bars{display:flex;flex-direction:column;gap:2px}
   .day-bar{height:5px;background:var(--soft);border-radius:3px;overflow:hidden}
   .day-bar i{display:block;height:100%;border-radius:3px}
   .day-bar.tok i{background:color-mix(in srgb,var(--c-assist) 72%,transparent)}
-  .day-bar.cost i{background:color-mix(in srgb,var(--c-user) 72%,transparent)}
   .day .num{color:var(--muted);font-size:10.5px}
-  .dkey{display:flex;justify-content:flex-end;gap:12px;font-size:10px;color:var(--muted);margin-bottom:6px}
-  .dkey .sw{display:inline-block;width:10px;height:8px;border-radius:2px;margin-right:4px;vertical-align:-1px}
-  .dkey .sw.tok{background:color-mix(in srgb,var(--c-assist) 72%,transparent)}
-  .dkey .sw.cost{background:color-mix(in srgb,var(--c-user) 72%,transparent)}
   .fnote{color:var(--faint);font-size:10px;margin-top:6px}
+  /* 耗时时间轴（逐请求 [发起,首字,完成] 甘特轨） */
+  .seq{display:flex;flex-direction:column;gap:2px;margin-top:8px}
+  .seq .lb{height:7px}
+  /* 会话内容（最近对话轮次，按需加载） */
+  .turn{padding:7px 0;font-size:12px}
+  .turn+.turn{border-top:1px solid var(--soft)}
+  .th{display:flex;align-items:baseline;gap:8px;margin-bottom:2px}
+  .tu{flex:1;min-width:0;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tt{color:var(--faint);font-size:10px;flex:none;font-variant-numeric:tabular-nums}
+  .tx{color:var(--muted);font-size:11.5px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .tk{margin-top:2px;color:var(--faint);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style>
 </head>
 <body>
@@ -221,7 +234,7 @@ const CAP = 5;
 const Expand = new Set();
 const card = (t, body, sub = "", ctl = "") =>
   `<section class="card"><div class="ct"><span>${t}</span>${sub ? `<span class="ct-s">${sub}</span>` : ""}${ctl}</div>${body}</section>`;
-const kpi = (l, v, s = "") => `<div class="kpi"><span class="kl">${l}</span><span class="kv2">${v}</span>${s ? `<span class="ks">${s}</span>` : ""}</div>`;
+const kvi = (l, v) => `<span>${l}: <b>${v}</b></span>`;
 // 分类色固定（对齐 dsh categories.ts：用户绿/助手蓝/推理紫/工具青/文件橙/压缩灰）
 const CAT = { user: "用户消息", assistant: "助手回复", reasoning: "推理", tool: "工具结果", file: "文件", compact: "压缩摘要" };
 const CCOL = { user: "var(--c-user)", assistant: "var(--c-assist)", reasoning: "var(--c-reason)", tool: "var(--c-tool)", file: "var(--c-file)", compact: "var(--c-compact)" };
@@ -231,7 +244,7 @@ const sCol = (i) => SERIES[i % SERIES.length];
 // 按模型环形图卡片（本会话/本工作区共用）：环形 + 点状图例（次数/token/可选速度/成本）
 function modelShare(bm, center) {
   const tot = bm.reduce((a, x) => a + x.tok, 0) || 1;
-  return `<div class="dwrap">${donut(bm.map((m, i) => ({ v: m.tok, c: sCol(i) })), center, "Total")}
+  return `<div class="dwrap">${donut(bm.map((m, i) => ({ v: m.tok, c: sCol(i) })), center)}
     <div class="sl">${bm.map((m, i) => slRow(sCol(i), esc(m.model), (m.pct ?? Math.round(m.tok * 100 / tot)) + "%",
       `${m.cnt} 次 · ${Kcn(m.tok)} tok${m.lastTps != null ? ` · ${m.lastTps} t/s` : ""}${m.cost != null ? ` · ${FmtCost(m.cost)}` : ""}`)).join("")}</div></div>`;
 }
@@ -242,17 +255,17 @@ const slRow = (c, label, pct, sub = "") =>
   `<div class="slr"><div class="slm">${dot(c)}<span class="sll">${label}</span><span class="slp">${pct}</span></div>${sub ? `<div class="sls">${sub}</div>` : ""}</div>`;
 const row = (c, name, xs) => `<div class="lr"><div class="lrm">${c ? dot(c) : ""}<span class="lrn">${name}</span></div><span class="lrx">${xs}</span></div>`;
 // 环形图：SVG 圆环 stroke-dasharray 分段，中性轨道，中心合计
-function donut(segs, center, label) {
+function donut(segs, center) {
   const tot = segs.reduce((a, x) => a + x.v, 0) || 1;
   const C = 2 * Math.PI * 44;
   let off = 0;
   const arcs = segs.filter((x) => x.v > 0).map((x) => {
     const len = x.v * C / tot;
-    const el = `<circle r="44" cx="55" cy="55" fill="none" stroke="${x.c}" stroke-width="13" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 55 55)"/>`;
+    const el = `<circle r="44" cx="55" cy="55" fill="none" stroke="${x.c}" stroke-width="12" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 55 55)"/>`;
     off += len;
     return el;
   }).join("");
-  return `<div class="donut"><svg viewBox="0 0 110 110" width="104" height="104"><circle r="44" cx="55" cy="55" fill="none" stroke="var(--soft)" stroke-width="13"/>${arcs}</svg><div class="dc"><b>${center}</b><span>${label}</span></div></div>`;
+  return `<div class="donut"><svg viewBox="0 0 110 110" width="116" height="116"><circle r="44" cx="55" cy="55" fill="none" stroke="var(--soft)" stroke-width="12"/>${arcs}</svg><div class="dc"><b>${center}</b></div></div>`;
 }
 // 列表卡片：默认只显示前 CAP 条，点「显示全部」展开（Expand 集合跨 3s 重绘保持展开态）
 function listCard(key, title, items, rowFn, empty = "暂无数据") {
@@ -269,6 +282,10 @@ document.addEventListener("click", (ev) => {
   if (r) { Range = r.dataset.range; refresh(); return; }
   const sr = ev.target.closest?.("[data-srange]");
   if (sr) { SessRange = sr.dataset.srange; refresh(); return; }
+  const tm = ev.target.closest?.("[data-trend]");
+  if (tm) { TrendMode = tm.dataset.trend; if (LastD) render(LastD); return; }
+  const ld = ev.target.closest?.("[data-load]");
+  if (ld) { loadContent(); return; }
   const b = ev.target.closest?.(".more");
   if (!b) return;
   const k = b.dataset.key;
@@ -277,6 +294,48 @@ document.addEventListener("click", (ev) => {
 });
 let Range = "today";       // 本工作区时间范围：today | all
 let SessRange = "today";   // 本会话时间范围：today | all（明细跟随过滤，上下文/速度/缓存/组成为实时口径）
+let TrendMode = "total";   // 趋势图口径：total 全量（柱=该次请求上下文规模） | delta 增量（柱=相对上次的新增）
+let Content = null;        // 会话内容缓存：按需加载（点「加载最近对话」才拉取，不进轮询防 CPU 回升），跨重绘保留
+let ContentLoading = false;
+async function loadContent() {
+  if (ContentLoading) return;
+  ContentLoading = true;
+  if (LastD) render(LastD);   // 立即反馈"加载中…"
+  try { Content = await callTool("get_session_content", {}); }
+  catch (e) { Content = { ...(Content ?? { turns: [], total: 0 }), err: e.message }; }   // 刷新失败保留旧数据，只叠 err
+  ContentLoading = false;
+  if (LastD) render(LastD);
+}
+// 耗时时间轴：逐请求一行，紫 = 发起→首字（等待），蓝 = 首字→完成（生成），行间空隙 = 工具执行与等待
+function seqTrack(seq) {
+  const rows = seq.slice(-15);
+  const mn = Math.min(...rows.map((x) => x.s)), mx = Math.max(...rows.map((x) => x.c));
+  const span = Math.max(1, mx - mn);
+  const pc = (t) => ((t - mn) * 100 / span).toFixed(2);
+  const bars = rows.map((x) => {
+    const l = pc(x.s);
+    if (x.ft == null) return `<div class="lb"><i style="left:${l}%;width:${Math.max(0.6, (x.c - x.s) * 100 / span).toFixed(2)}%;background:var(--c-assist)"></i></div>`;
+    return `<div class="lb"><i style="left:${l}%;width:${Math.max(0.6, (x.ft - x.s) * 100 / span).toFixed(2)}%;background:var(--c-reason)"></i>
+      <i style="left:${pc(x.ft)}%;width:${Math.max(0.6, (x.c - x.ft) * 100 / span).toFixed(2)}%;background:var(--c-assist)"></i></div>`;
+  }).join("");
+  return `<div class="seq"><div class="lt"><span>${FmtMs(mn)}</span><span>最近 ${rows.length} 次请求</span><span>${FmtMs(mx)}</span></div>${bars}</div>
+    <div class="fnote">时间轴：紫 = 等待首字 · 蓝 = 模型生成 · 空隙 = 工具执行与你的输入等待</div>`;
+}
+// 最近对话卡内容：轮次 = 用户消息分界，正文预览（title 悬停看全文）
+function contentBody(C) {
+  if (C.err) return `<div class="note">加载失败：${esc(C.err)} <button class="more" type="button" data-load="1" style="border-top:0;margin-top:0">重试</button></div>`;
+  if (!C.turns.length) return `<div class="note">暂无对话</div>`;
+  const items = Expand.has("content") ? C.turns : C.turns.slice(-5);
+  let body = items.map((x) => `<div class="turn">
+      <div class="th"><span class="tu" title="${esc(x.user)}">${esc(x.user) || "（无文本，直接工具调用）"}</span><span class="tt">${FmtMs(x.t)}</span></div>
+      ${x.reply ? `<div class="tx" title="${esc(x.reply)}">${esc(x.reply)}</div>` : ""}
+      ${x.toolN ? `<div class="tk" title="${esc(x.tools.join(" → "))}">${esc(x.tools.join(" · "))}${x.toolN > x.tools.length ? ` 等 ${x.toolN} 次调用` : ""}</div>` : ""}
+    </div>`).join("");
+  if (C.turns.length > CAP) body += Expand.has("content")
+    ? `<button class="more" type="button" data-key="content">收起</button>`
+    : `<button class="more" type="button" data-key="content">显示全部 ${C.turns.length} 轮</button>`;
+  return body;
+}
 
 function render(D) {
   document.getElementById("stamp").textContent = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -299,15 +358,15 @@ function renderSess(D) {
   let html = card(`当前上下文`,
     `<div class="bignum"><b>${Kcn(s.ctx)}</b><span>${s.total > 0 ? "/ " + Kcn(s.total) + " tokens" : "tokens"}</span>
       <span class="bigpct ${pct == null ? "" : pct >= 90 ? "over" : pct >= 70 ? "warn" : ""}"><b>${pct == null ? "-" : pct + "%"}</b><span>已用上下文</span></span></div>
-     <div class="stack">${comp.map((x) => `<i style="width:${(x.tok * 100 / denom).toFixed(2)}%;background:${CCOL[x.cat] ?? "var(--c-compact)"}"></i>`).join("")}${denom > 0 ? `<i class="rest"></i>` : ""}</div>`
+     <div class="stack">${comp.map((x) => `<i style="width:${(x.tok * 100 / denom).toFixed(2)}%;background:${CCOL[x.cat] ?? "var(--c-compact)"}"></i>`).join("")}${denom > 0 ? `<i class="rest"></i>` : ""}${s.total > 0 ? `<i class="mark" style="left:95%" title="实测压缩触发点 ≈ 窗口 95%"></i>` : ""}</div>`
     + (cTot > 0
-      ? `<div class="sl">${comp.map((x) => slRow(CCOL[x.cat] ?? "var(--c-compact)", CAT[x.cat] ?? esc(x.cat), Math.round(x.tok * 100 / cTot) + "%", `≈${Kcn(x.tok)}`)).join("")}</div>
-         <div class="fnote">组成 · 估算（part 内容按字符数折算到当前窗口）</div>`
+      ? `<div class="sl">${comp.map((x) => slRow(CCOL[x.cat] ?? "var(--c-compact)", CAT[x.cat] ?? esc(x.cat), `${Math.round(x.tok * 100 / cTot)}% · ≈${Kcn(x.tok)}`)).join("")}</div>
+         <div class="fnote">组成 · 估算（part 内容按字符数折算）${s.total > 0 ? " · 琥珀竖线 = 实测压缩触发点 ≈ 窗口 95%" : ""}</div>`
       : `<div class="note">暂无组成数据</div>`),
     esc((s.model ?? "").split("/").pop() ?? s.model));
   // 上下文统计：KPI 组 + 键值行 + 今日/全部切换（明细跟随，上下文/速度/缓存为实时口径）
   html += card("上下文统计",
-    `<div class="kpis">${kpi("轮次", s.turns)}${kpi("请求", s.n)}${kpi("工具调用", s.tools)}${kpi("子代理", s.sub?.n ?? 0)}</div>
+    `<div class="kvline">${kvi("轮次", s.turns)}${kvi("请求", s.n)}${kvi("工具调用", s.tools)}${kvi("子代理", s.sub?.n ?? 0)}</div>
      <div class="kv"><span class="kvl">Token${srange === "today" ? " · 今日" : ""}</span><span class="kvr">${Kcn(s.usedTok)}${s.cost != null ? ` · ${FmtCost(s.cost)}` : ""}</span></div>
      <div class="kvs">${s.n} 次请求 · ${s.turns} 轮</div>
      <div class="kv"><span class="kvl">输出速度</span><span class="kvr">${s.tps.toFixed(1)} t/s</span></div>
@@ -321,28 +380,83 @@ function renderSess(D) {
   html += card("Token 统计",
     bm.length ? modelShare(bm, Kcn(s.usedTok)) : `<div class="note">暂无数据</div>`,
     `${bm.length} 个模型`);
-  // 上下文趋势：每根柱一次完成请求，琥珀 = 压缩请求
+  // 上下文趋势：每根柱一次完成请求，琥珀 = 压缩请求；全量 = 上下文规模，增量 = 相对上次请求的新增
   if (s.trend?.length) {
-    const tm = Math.max(1, ...s.trend.map((x) => x.i + x.o));
-    const tsum = s.trend.reduce((a, x) => a + x.i + x.o, 0);
+    const val = s.trend.map((x, k) => (TrendMode === "delta" ? Math.max(0, x.i - (k ? s.trend[k - 1].i : 0)) : x.i) + x.o);
+    const tm = Math.max(1, ...val);
+    const tsum = val.reduce((a, x) => a + x, 0);
     html += card("上下文趋势",
-      `<div class="trend">${s.trend.map((x) => `<div class="b${x.c ? " c" : ""}"><u style="height:${(x.o * 100 / tm).toFixed(1)}%"></u><i style="height:${(x.i * 100 / tm).toFixed(1)}%"></i></div>`).join("")}</div>
-       <div class="axis"><span>0</span><span>柱高 = 输入（实）+ 输出（淡）· 合计 ${Kcn(tsum)} tok</span></div>`,
-      `近 ${s.trend.length} 次`);
+      `<div class="trend">${s.trend.map((x, k) => `<div class="b${x.c ? " c" : ""}"><u style="height:${(x.o * 100 / tm).toFixed(1)}%"></u><i style="height:${(val[k] - x.o < 0 ? 0 : (val[k] - x.o) * 100 / tm).toFixed(1)}%"></i></div>`).join("")}</div>
+       <div class="axis"><span>0</span><span>${TrendMode === "delta" ? "柱高 = 相对上次请求的新增（压缩后为 0）" : "柱高 = 输入（实）+ 输出（淡）"} · 合计 ${Kcn(tsum)} tok</span></div>`,
+      `近 ${s.trend.length} 次`, segCtl([["total", "全量"], ["delta", "增量"]], "data-trend", TrendMode));
   }
-  // 明细卡片：子代理 / 命令执行 / 文件活动 / 技能加载
-  if (s.sub?.n > 0 && s.sub.list.length)
-    html += listCard("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x, i) =>
-      row(sCol(i), esc(x.title), `${x.cnt} 次 · ${Kcn(x.tok)} tok`), "无子代理");
-  if (s.cmds?.length)
-    html += listCard("cmds", `命令执行 · ${s.cmds.reduce((a, x) => a + x.n, 0)} 次`, s.cmds, (x, i) =>
-      row(sCol(i), esc(x.prog), `${x.n} 次 · ${FmtMs(x.last)}`));
+  // 耗时统计：模型等待（首字延迟合计）/ 模型生成 / 请求间空隙（工具执行+输入等待），跟随今日/全部
+  if (s.timing) {
+    const T = s.timing, tot = T.waitMs + T.genMs + T.otherMs;
+    if (tot > 0) {
+      const F = (ms) => (ms >= 60000 ? FmtDur(ms) : (ms / 1000).toFixed(1) + "s");
+      const seg3 = (ms, c) => `<i style="width:${(ms * 100 / tot).toFixed(2)}%;background:${c}"></i>`;
+      html += card("耗时统计",
+        `<div class="stack" style="margin-top:0">${seg3(T.waitMs, "var(--c-reason)")}${seg3(T.genMs, "var(--c-assist)")}${seg3(T.otherMs, "var(--c-compact)")}</div>
+         <div class="kvline" style="padding-bottom:0">${kvi("模型等待", F(T.waitMs))}${kvi("模型生成", F(T.genMs))}${kvi("工具与等待", F(T.otherMs))}</div>
+         <div class="fnote">模型等待 = 首字延迟合计 · 工具与等待 = 请求之间的空隙（含工具执行与你输入的时间）</div>`
+        + (T.seq?.length >= 2 ? seqTrack(T.seq) : ""),
+        srange === "today" ? "今日" : "全部");
+    }
+  }
+  // 上下文事件：压缩 / 模型切换 / 会话分叉（宿主 timeline 原生记录，最新 60 条，时间正序）
+  if (s.events?.length)
+    html += listCard("events", `上下文事件 · ${s.events.length} 条`, s.events, (e) => {
+      const c = e.kind === "compact" ? "var(--c-file)" : e.kind === "fork" ? "var(--c-reason)" : "var(--c-assist)";
+      return row(c, esc(e.text), FmtMs(e.t));
+    }, "暂无事件");
+  // 明细卡片：子代理泳道（时间线复盘） / 命令执行 / 文件活动 / 技能加载
+  if (s.sub?.n > 0 && s.sub.list.length) {
+    const lane = s.sub.list.filter((x) => x.f && x.l);
+    if (lane.length >= 2) {
+      const now = Date.now();
+      const mn = Math.min(...lane.map((x) => x.tc || x.f));
+      const mx = Math.max(...lane.map((x) => (x.running ? now : Math.max(x.tu || x.l, x.l))));
+      const span = Math.max(1, mx - mn);
+      const pos = (t) => Math.min(100, Math.max(0, ((t - mn) * 100 / span)));
+      const F = (ms) => { const m = Math.round(ms / 60000); return m >= 60 ? Math.floor(m / 60) + "h" + (m % 60 ? m % 60 + "m" : "") : m + "m"; };
+      const laneHtml = (items) => `<div class="lt"><span>${FmtMs(mn)}</span><span>跨度 ${F(mx - mn)}${items.some((x) => x.running) ? " · 含运行中" : ""}</span><span>${FmtMs(mx)}</span></div>`
+        + items.map((x) => {
+          const a = pos(x.f), b = pos(x.running ? now : x.l);
+          return `<div class="lane"><div class="ln" title="${esc(String(x.desc || x.title).slice(0, 80))}">${esc(String(x.desc || x.title).slice(0, 22))}</div>
+            <div class="lb"><i class="${x.running ? "run" : x.outcome === "error" ? "err" : ""}" style="left:${a.toFixed(2)}%;width:${Math.max(1.5, b - a).toFixed(2)}%"></i></div>
+            <span class="num">${Kcn(x.tok)}</span></div>`;
+        }).join("");
+      let body = laneHtml(Expand.has("sub") ? s.sub.list : s.sub.list.slice(0, CAP));
+      if (s.sub.list.length > CAP) body += Expand.has("sub")
+        ? `<button class="more" type="button" data-key="sub">收起</button>`
+        : `<button class="more" type="button" data-key="sub">显示全部 ${s.sub.list.length} 条</button>`;
+      html += card(`子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, body);
+    } else {
+      html += listCard("sub", `子代理 · ${s.sub.n} 个 · ${Kcn(s.sub.tok)} tok`, s.sub.list, (x, i) =>
+        row(sCol(i), esc(x.title), `${x.cnt} 次 · ${Kcn(x.tok)} tok`), "无子代理");
+    }
+  }
+  if (s.cmds?.length) {
+    const cmdErr = s.cmds.reduce((a, x) => a + (x.err ?? 0), 0);
+    const cmdCancel = s.cmds.reduce((a, x) => a + (x.cancel ?? 0), 0);
+    html += listCard("cmds", `命令执行 · ${s.cmds.reduce((a, x) => a + x.n, 0)} 次${cmdErr ? ` · 失败 ${cmdErr}` : ""}${cmdCancel ? ` · 取消 ${cmdCancel}` : ""}`, s.cmds, (x, i) =>
+      row(sCol(i), esc(x.prog), `${x.n} 次${x.err ? ` · 失败 ${x.err}` : ""}${x.slow ? ` · 最慢 ${(x.slow / 1000).toFixed(0)}s${x.avg ? ` · 均 ${(x.avg / 1000).toFixed(1)}s` : ""}` : ""} · ${FmtMs(x.last)}`));
+  }
   if (s.files?.length)
     html += listCard("files", `文件活动 · ${s.files.reduce((a, x) => a + x.n, 0)} 次`, s.files, (x, i) =>
-      row(sCol(i), esc(String(x.path).split(/[\\/]/).pop()), `读 ${x.read} · 写 ${x.write} · ${x.n} 次`));
+      row(sCol(i), esc(String(x.path).split(/[\\/]/).pop()), `读 ${x.read} · 写 ${x.write} · ${x.n} 次`
+        + (x.ins || x.del ? ` · ` + (x.ins ? `<span style="color:var(--up)">+${Kcn(x.ins)}</span>` : "")
+          + (x.del ? `<span style="color:var(--down)">−${Kcn(x.del)}</span>` : "") : "")));
   if (s.skills?.length)
     html += listCard("skills", `技能加载 · ${s.skills.reduce((a, x) => a + x.n, 0)} 次`, s.skills, (x, i) =>
       row(sCol(i), esc(x.name), `${x.n} 次 · ${FmtMs(x.last)}`));
+  // 最近对话：按需加载（get_session_content），已加载显示缓存 + 顶部"刷新"重拉
+  const cCtl = Content ? `<button class="retry-btn" data-load="1" style="border-color:var(--border);color:var(--muted)">${ContentLoading ? "刷新中…" : "刷新"}</button>` : "";
+  html += card(`最近对话${Content ? ` · 共 ${Content.total} 轮` : ""}`,
+    ContentLoading && !Content ? `<div class="note">加载中…</div>` : Content ? contentBody(Content)
+      : `<button class="more" type="button" data-load="1" style="border-top:0;margin-top:0">加载最近对话</button>`,
+    "", cCtl);
   return html;
 }
 
@@ -359,7 +473,7 @@ function renderAll(D) {
   let html = card(`${rl} Token 用量`,
     `<div class="bignum"><b>${Kcn(total)}</b><span>tokens</span>
       <span class="bigpct"><b>${s.cost != null ? FmtCost(s.cost) : "-"}</b><span>估算成本</span></span></div>
-     <div class="kpis">${kpi("请求", s.n)}${kpi("会话", D.sessN ?? 0)}${kpi("工具调用", tools.tools)}${kpi("压缩", D.compactN ?? 0)}</div>
+     <div class="kvline">${kvi("请求", s.n)}${kvi("会话", D.sessN ?? 0)}${kvi("工具调用", tools.tools)}${kvi("压缩", D.compactN ?? 0)}</div>
      <div class="chips"><span>${s.n} 次请求</span><span>${span}</span><span>输入 ${Kcn(s.inp)} · 输出 ${Kcn(s.out)}</span><span>${D.byModel.length} 个模型</span>${tools.terr ? `<span class="chip err">错误 ${tools.terr}</span>` : ""}</div>`,
     scopeTip, segCtl([["today", "今日"], ["all", "全部"]], "data-range", D.range ?? "today"));
   // 按模型：环形图 + 点状图例
@@ -383,15 +497,11 @@ function renderAll(D) {
   // 近 7 日：token 与成本双行条（dsh usage 配色：tokens 蓝 / cost 绿）
   if (D.days.some((d) => d.tok > 0)) {
     const mx = Math.max(1, ...D.days.map((d) => d.tok));
-    const mc = Math.max(1e-6, ...D.days.map((d) => d.cost ?? 0));
-    html += card(`近 7 日 · Token 与成本`,
-      `<div class="dkey"><span><i class="sw tok"></i>tokens</span>
-        <span><i class="sw cost"></i>成本</span></div>
-       <div class="days">${D.days.map((d) =>
-         `<div class="day"><span class="num">${d.label}</span>
-          <div class="day-bars"><div class="day-bar tok"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>
-          <div class="day-bar cost"><i style="width:${Math.round((d.cost ?? 0) * 100 / mc)}%"></i></div></div>
-          <span class="num">${Kcn(d.tok)} · ${FmtCost(d.cost ?? 0)}</span></div>`).join("")}</div>`,
+    html += card(`近 7 日 · Token 用量`,
+      `<div class="days">${D.days.map((d) =>
+        `<div class="day"><span class="num">${d.label}</span>
+         <div class="day-bar tok"><i style="width:${Math.round(d.tok * 100 / mx)}%"></i></div>
+         <span class="num">${Kcn(d.tok)} · ${FmtCost(d.cost ?? 0)}</span></div>`).join("")}</div>`,
       scopeTip);
   }
   return html;
